@@ -28,7 +28,8 @@ int tun_open(const char * dev)
 	memset(&ifr, 0, sizeof(struct ifreq));
 	if (*dev)
 		strncpy(ifr.ifr_name, dev, IFNAMSIZ);
-	ifr.ifr_flags |= IFF_TAP;	   /* 以太网设备 */
+	//ifr.ifr_flags |= IFF_TAP;	   /* 以太网设备 */
+	ifr.ifr_flags |= IFF_TUN;
 
 	if (ioctl(fd, TUNSETIFF, (void *)&ifr) < 0)
 	{
@@ -73,6 +74,12 @@ int tun_setup(const char * dev, struct sockaddr_in * addr)
 		printf("set interface up fail\n");
 		goto err;
 	}
+	/* 混杂模式 */
+	ifr.ifr_flags |= IFF_PROMISC;
+	if (ioctl(fd, SIOCSIFFLAGS, &ifr) < 0) {
+		printf("set promisc\n");
+		goto err;
+	}
 	/* set ip */
 	memcpy(&ifr.ifr_addr, addr, sizeof(struct sockaddr));
 	if (ioctl(fd, SIOCSIFADDR, &ifr) < 0) {
@@ -87,6 +94,7 @@ int tun_setup(const char * dev, struct sockaddr_in * addr)
 		goto err;
 	}
 
+	close(fd);
 	return 0;
 
 err:
@@ -119,7 +127,7 @@ int main()
 	inet_pton(AF_INET, "13.254.254.131", &addr.sin_addr.s_addr);
 	if (tun_setup(dev, &addr) < 0)
 		return -2;
-
+	
 	while (1)
 	{
 		int ret;
