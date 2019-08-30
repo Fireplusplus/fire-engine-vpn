@@ -2,7 +2,7 @@
 ipsec vpn
 
 1.开启linux的ip代理转发功能,作为路由器角色
-	echo 1> /proc/sys/net/ipv4/ip_forward
+	echo 1 > /proc/sys/net/ipv4/ip_forward
 
 2.添加内网路由至tun口
 	a.添加路由表
