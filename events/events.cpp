@@ -10,6 +10,8 @@
 #include <string>
 #include <unordered_map>
 
+#include "tun.h"
+
 using namespace std;
 
 struct event_action_st {
@@ -23,8 +25,9 @@ struct cli_info_st {
 };
 
 static unordered_map<int, cli_info_st*> s_ev_list;	/* client信息缓存 */
+struct event_base *s_ev_base;
 static int s_server;								/* 是否服务端 */
-static event_action_st s_events_hd[2];				/* 事件处理函数集,0: client, 1: server */
+static event_action_st s_events_hd[3];				/* 事件处理函数集,0: client, 1: server, 2: raw input*/
 
 cli_info_st * cli_info_create()
 {
@@ -134,6 +137,7 @@ static void on_read(int fd, short what, void *arg)
 		if (s_server) {
 			cli_list_remove(fd);
 		} else {
+			//TODO：free fd
 			event_base_loopbreak((struct event_base*)arg);
 		}
 		return;
@@ -205,11 +209,11 @@ static void client_destroy(int sock)
 void event_run()
 {
 	static event_action_st *hd = &s_events_hd[s_server];
-	struct event* ev = NULL;
+	struct event* ev = NULL, *ev_raw = NULL;
 	int sock = 0;
 	
-	struct event_base *base = event_base_new();
-	if (!base) {
+	s_ev_base = event_base_new();
+	if (!s_ev_base) {
 		printf("client_run event_base_new failed\n");
 		goto failed;
 	}
@@ -218,18 +222,27 @@ void event_run()
 	if (sock < 0)
 		goto failed;
 
-	ev = event_new(base, sock, EV_READ | EV_PERSIST, hd->on_do, base);
+	ev = event_new(s_ev_base, sock, EV_READ | EV_PERSIST, hd->on_do, s_ev_base);
 	event_add(ev, NULL);
 	
-	event_base_dispatch(base);
+	/* 监听原始输入 */
+	hd = &s_events_hd[2];
+	ev_raw = event_new(s_ev_base, sock, EV_READ | EV_PERSIST, hd->on_do, NULL);;
+	event_add(ev_raw, NULL);
+	
+	event_base_dispatch(s_ev_base);
 	
 failed:
 	if (ev)
 		event_free(ev);
+	
+	if (ev_raw)
+		event_free(ev_raw);
+	
 	hd->destroy(sock);
 	
-	if (base)
-		event_base_free(base);
+	if (s_ev_base)
+		event_base_free(s_ev_base);
 }
 
 int event_init(int server)
@@ -241,8 +254,11 @@ int event_init(int server)
 	
 	struct event_action_st cli_ev = {client_create, client_destroy, on_read};
 	struct event_action_st ser_ev = {listener_create, listener_destroy, on_listen};
+	struct event_action_st raw_ev = {tun_init, tun_finit, on_read};
+	
 	s_events_hd[0] = cli_ev;
 	s_events_hd[1] = ser_ev;
+	s_events_hd[2] = raw_ev;
 	
 	return 0;
 }

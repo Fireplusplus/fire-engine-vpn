@@ -1,12 +1,13 @@
 ROOT_PATH=$(shell pwd)
 SERVER_PATH=$(ROOT_PATH)
 EVENTS_PATH=$(ROOT_PATH)/events
+TUN_PATH=$(ROOT_PATH)/tun
 
 SERVER=ipsec
 CXX=g++
 FLAGS=-levent -g
-SUBDIRS=$(SERVER_PATH) $(EVENTS_PATH)
-INCLUDE=-I$(SERVER_PATH) -I$(EVENTS_PATH)
+SUBDIRS=$(SERVER_PATH) $(EVENTS_PATH) $(TUN_PATH)
+INCLUDE=-I$(SERVER_PATH) -I$(EVENTS_PATH) -I$(TUN_PATH)
 
 SER_SRC=$(shell ls $(SUBDIRS) | grep -E ".cpp")
 SER_OBJ=$(SER_SRC:.cpp=.o)
@@ -20,6 +21,8 @@ $(SERVER):$(SER_OBJ)
 %.o:$(SERVER_PATH)/%.cpp
 	$(CXX) -c $(<) $(INCLUDE) $(FLAGS)
 %.o:$(EVENTS_PATH)/%.cpp
+	$(CXX) -c $(<) $(INCLUDE) $(FLAGS)
+%.o:$(TUN_PATH)/%.cpp
 	$(CXX) -c $(<) $(INCLUDE) $(FLAGS)
 
 .PHONY:clean

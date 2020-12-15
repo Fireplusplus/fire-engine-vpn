@@ -1,6 +1,18 @@
+#include <stdio.h>
+#include <string.h>
+#include <assert.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/ioctl.h>
+#include <arpa/inet.h>
+#include <linux/if.h>
+#include <linux/if_tun.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 #include "tun.h"
 
-int tun_open(const char * dev)
+static int tun_open(const char * dev)
 {
 	struct ifreq ifr;
 	int fd;
@@ -35,7 +47,7 @@ int tun_open(const char * dev)
 	return fd;
 }
 
-int tun_setup(const char * dev, struct sockaddr_in * addr)
+static int tun_setup(const char * dev, struct sockaddr_in * addr)
 {
 	struct ifreq ifr;
 	int fd;
@@ -90,8 +102,35 @@ err:
 	return -1;
 }
 
-int tun_close(int fd)
+static void tun_close(int fd)
 {
 	close(fd);
 }
 
+int tun_init()
+{
+	int tun_fd = -1;
+	const char * dev = "tun";
+	struct sockaddr_in addr;
+
+	tun_fd = tun_open(dev);
+	if (tun_fd < 0)
+	{
+		printf("create tun fail\n");
+		return -1;
+	}
+
+	memset(&addr, 0, sizeof(struct sockaddr));
+	addr.sin_family = AF_INET;
+	inet_pton(AF_INET, "13.254.254.131", &addr.sin_addr.s_addr);
+	if (tun_setup(dev, &addr) < 0)
+		return -2;
+	
+	return tun_fd;
+}
+
+void tun_finit(int fd)
+{
+	if (fd > 0)
+		tun_close(fd);
+}
