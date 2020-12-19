@@ -8,7 +8,6 @@
 #include <event2/event.h>
 
 #include <iostream>
-#include <string>
 #include <unordered_map>
 
 #include "log.h"
@@ -24,48 +23,49 @@ struct event_action_st {
 	const char *desc;
 };
 
-struct cli_info_st {
+struct ser_cli_info_st {
 	struct event *ev;
 };
 
-static unordered_map<int, cli_info_st*> s_ev_list;	/* client信息缓存 */
+static unordered_map<int, ser_cli_info_st*> s_sc_info_list;		/* 事件缓存表 */
 struct event_base *s_ev_base;
-static int s_server;								/* 是否服务端 */
+static int s_server;											/* 是否服务端 */
 
-cli_info_st * cli_info_create()
+ser_cli_info_st * sc_info_create()
 {
-	return (cli_info_st *)calloc(1, sizeof(cli_info_st));
+	return (ser_cli_info_st *)calloc(1, sizeof(ser_cli_info_st));
 }
 
-void cli_info_destroy(cli_info_st *cli)
+void sc_info_destroy(ser_cli_info_st *sc)
 {
-	if (!cli)
+	if (!sc)
 		return;
 	
-	if (cli->ev) {
-		event_free(cli->ev);
+	if (sc->ev) {
+		event_del(sc->ev);
+		event_free(sc->ev);
 	}
-	free(cli);
+	free(sc);
 }
 
-void cli_list_save(int fd, cli_info_st *cli)
+void sc_info_add(int fd, ser_cli_info_st *sc)
 {
-	assert(cli);
+	assert(sc);
 	
-	unordered_map<int, cli_info_st*>::iterator it = s_ev_list.find(fd);
-	if (it != s_ev_list.end()) {
-		cli_info_destroy(it->second);
+	unordered_map<int, ser_cli_info_st*>::iterator it = s_sc_info_list.find(fd);
+	if (it != s_sc_info_list.end()) {
+		sc_info_destroy(it->second);
 	}
 	
-	s_ev_list[fd] = cli;
+	s_sc_info_list[fd] = sc;
 }
 
-void cli_list_remove(int fd)
+void sc_info_del(int fd)
 {
-	unordered_map<int, cli_info_st*>::iterator it = s_ev_list.find(fd);
-	if (it != s_ev_list.end()) {
-		cli_info_destroy(it->second);
-		s_ev_list.erase(it);
+	unordered_map<int, ser_cli_info_st*>::iterator it = s_sc_info_list.find(fd);
+	if (it != s_sc_info_list.end()) {
+		sc_info_destroy(it->second);
+		s_sc_info_list.erase(it);
 	}
 }
 
@@ -122,6 +122,8 @@ static int listener_create()
 		goto failed;
 	}
 
+	INFO("server listen on: %s:%d", get_server_ip(), get_server_port() + i);
+
 	(void)set_unblock(sock);
 	return sock;
 
@@ -148,14 +150,8 @@ static void on_read(int fd, short what, void *arg)
 	}
 	
 	if (len == 0) {
-		INFO("read end\n");
-		
-		if (s_server) {
-			cli_list_remove(fd);
-		} else {
-			//TODO：free fd
-			event_base_loopbreak((struct event_base*)arg);
-		}
+		INFO("peer closed\n");
+		sc_info_del(fd);
 		return;
 	}
 	
@@ -174,15 +170,22 @@ static void on_listen(int listen, short what, void *arg)
 	}
 	
 	struct event* ev = event_new((struct event_base*)arg, sock, EV_READ | EV_ET, on_read, NULL);
+	if (!ev) {
+		WARN("create event failed");
+		return;
+	}
+
 	event_add(ev, NULL);
 	
-	cli_info_st *cli = cli_info_create();
-	if (!cli) {
+	ser_cli_info_st *sc = sc_info_create();
+	if (!sc) {
+		event_del(ev);
+		WARN("create sc info failed: no memory");
 		return;
 	}
 	
-	cli->ev = ev;
-	cli_list_save(sock, cli);
+	sc->ev = ev;
+	sc_info_add(sock, sc);
 	
 	INFO("accept a client: sock(%d)\n", sock);
 }
@@ -206,7 +209,6 @@ static int client_create()
 	}
 	
 	set_unblock(sock);
-	
 	return sock;
 
 failed:
@@ -226,18 +228,27 @@ static void client_destroy(int sock)
 int event_register(int fd, void (*on_do)(int, short, void *), void *user_data)
 {
 	if (fd < 0 || !on_do) {
-		DEBUG("event_register failed: invalid param: fd: %d, on_do: %p", fd, on_do);
+		DEBUG("invalid param: fd: %d, on_do: %p", fd, on_do);
 		return -1;
 	}
 
 	struct event* ev = event_new(s_ev_base, fd, EV_READ | EV_PERSIST, on_do, user_data ?: s_ev_base);
 	if (!ev) {
-		DEBUG("event_register failed: invalid param: event create failed");
+		DEBUG("invalid param: event create failed");
 		return -1;
 	}
 	
 	event_add(ev, NULL);
-	INFO("event_register success: fd: %d", fd);
+
+	struct ser_cli_info_st *sc = sc_info_create();
+	if (!sc) {
+		WARN("create sc info failed: no memory");
+		event_del(ev);
+		return -1;
+	}
+	
+	sc->ev = ev;
+	sc_info_add(fd, sc);
 	return 0;
 }
 
@@ -251,7 +262,7 @@ static void server_register()
 	for (int i = 0; i < (int)(sizeof(evs) / sizeof(evs[0])); i++) {
 		int fd = evs[i].create();
 		if (!fd) {
-			ERROR("%s creat failed", evs[i].desc);
+			ERROR("%s create failed", evs[i].desc);
 			goto failed;
 		}
 
@@ -259,11 +270,31 @@ static void server_register()
 			ERROR("%s register failed", evs[i].desc);
 			goto failed;
 		}
+
+		INFO("%s register success", evs[i].desc);
 	}
 
 	return;
 
 failed:
+	exit(-1);
+}
+
+static void client_register()
+{
+	int fd = client_create();
+	if (fd < 0) {
+		return;
+	}
+
+	if (event_register(fd, on_read, NULL) < 0) {
+		goto failed;
+	}
+
+	return;
+
+failed:
+	client_destroy(fd);
 	exit(-1);
 }
 
@@ -288,5 +319,10 @@ int event_init(int server)
 	}
 	
 	server_register();
+
+	if (!s_server) {
+		client_register();
+	}
+
 	return 0;
 }

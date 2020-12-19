@@ -5,7 +5,7 @@
 
 #define __LOG(level, fmt, args...)		do {	\
 			std::string __file(__FILE__);		\
-			printf(level "[debug]%s:%d|%s|" fmt "\n", \
+			printf(level "%s:%d|%s|" fmt "\n", \
 			__file.substr(__file.find_last_of("/")).c_str() + 1, \
 			__LINE__, __FUNCTION__, ## args);	\
 		} while (0)
