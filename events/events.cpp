@@ -103,16 +103,17 @@ static int listener_create()
 		DEBUG("reuseaddr failed: %s", strerror(errno));
 	}
 	
+	short port = get_server_port();
 	int i;
-	for (i = 1; i < 4; i++) {
+	for (i = 0; i < 3; i++) {
 		if (bind(sock, (struct sockaddr*)&local, sizeof(local)) < 0) {
-			local.sin_port = htons(get_server_port() + i);
-			DEBUG("try bind next port: %d", get_server_port() + i);
+			DEBUG("bind %d failed: %s, try next", port, strerror(errno));
+			local.sin_port = htons(++port);
 		} else {
 			break;
 		}
 	}
-	if (i == 4) {
+	if (i >= 3) {
 		ERROR("bind error: %s", strerror(errno));
 		goto failed;
 	}
@@ -122,7 +123,7 @@ static int listener_create()
 		goto failed;
 	}
 
-	INFO("server listen on: %s:%d", get_server_ip(), get_server_port() + i);
+	INFO("server listen on: %s:%d", get_server_ip(), port);
 
 	(void)set_unblock(sock);
 	return sock;
@@ -150,7 +151,7 @@ static void on_read(int fd, short what, void *arg)
 	}
 	
 	if (len == 0) {
-		INFO("peer closed\n");
+		INFO("peer closed");
 		sc_info_del(fd);
 		return;
 	}
