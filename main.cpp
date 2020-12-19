@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "log.h"
 #include "events.h"
 
 
@@ -17,13 +18,12 @@ int main(int argc, char *argv[])
 		usage();
 	
 	if (event_init(argv[1][0] == 's' ? 1 : 0) < 0) {
-		printf("event init failed\n");
 		return -1;
 	}
 
 	(void)event_run();
 	
-	printf("event_run over !\n");
+	INFO("event_run over !\n");
 	return 0;
 }
 

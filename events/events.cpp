@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <assert.h>
@@ -10,7 +11,9 @@
 #include <string>
 #include <unordered_map>
 
+#include "log.h"
 #include "tun.h"
+#include "local_config.h"
 
 using namespace std;
 
@@ -18,6 +21,7 @@ struct event_action_st {
 	int (*create)();
 	void (*destroy)(int);
 	void (*on_do)(int, short, void *);
+	const char *desc;
 };
 
 struct cli_info_st {
@@ -27,7 +31,6 @@ struct cli_info_st {
 static unordered_map<int, cli_info_st*> s_ev_list;	/* client信息缓存 */
 struct event_base *s_ev_base;
 static int s_server;								/* 是否服务端 */
-static event_action_st s_events_hd[3];				/* 事件处理函数集,0: client, 1: server, 2: raw input*/
 
 cli_info_st * cli_info_create()
 {
@@ -70,10 +73,12 @@ int set_unblock(int fd)
 {
 	int flags;
 	if ((flags = fcntl(fd, F_GETFL, NULL)) < 0) {
+		DEBUG("fcntl failed: %s", strerror(errno));
 		return -1;
 	}
 	
 	if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+		DEBUG("fcntl failed: %s", strerror(errno));
 		return -1;
 	}
 	
@@ -84,29 +89,40 @@ static int listener_create()
 {
 	int sock = socket(AF_INET, SOCK_STREAM, 0);
 	if (sock < 0) {
-		perror("create_listener socket\n");
+		ERROR("socket error: %s", strerror(errno));
 		return -1;
 	}
 	
 	struct sockaddr_in local;
 	local.sin_family = AF_INET;
-	local.sin_port = htons(6666);
-	inet_pton(AF_INET, "127.0.0.1", &local.sin_addr.s_addr);
+	local.sin_port = htons(get_server_port());
+	inet_pton(AF_INET, get_server_ip(), &local.sin_addr.s_addr);
 	
 	int flag = 1, len = sizeof(int);
-	if( setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &flag, len) == -1)
-		goto failed;
+	if( setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &flag, len) == -1) {
+		DEBUG("reuseaddr failed: %s", strerror(errno));
+	}
 	
-	if (bind(sock, (struct sockaddr*)&local, sizeof(local)) < 0) {
-		perror("create_listener bind\n");
+	int i;
+	for (i = 1; i < 4; i++) {
+		if (bind(sock, (struct sockaddr*)&local, sizeof(local)) < 0) {
+			local.sin_port = htons(get_server_port() + i);
+			DEBUG("try bind next port: %d", get_server_port() + i);
+		} else {
+			break;
+		}
+	}
+	if (i == 4) {
+		ERROR("bind error: %s", strerror(errno));
 		goto failed;
 	}
 	
-	if (listen(sock, 10) < 0)
+	if (listen(sock, 10) < 0) {
+		ERROR("listen error: %s", strerror(errno));
 		goto failed;
+	}
 
-	set_unblock(sock);
-	
+	(void)set_unblock(sock);
 	return sock;
 
 failed:
@@ -127,12 +143,12 @@ static void on_read(int fd, short what, void *arg)
     char buf[10240];
     int len = read(fd, buf, sizeof(buf) - 1);
 	if (len < 0) {
-		perror("read_cb read");
+		WARN("read failed: %s", strerror(errno));
 		return;
 	}
 	
 	if (len == 0) {
-		printf("read null\n");
+		INFO("read end\n");
 		
 		if (s_server) {
 			cli_list_remove(fd);
@@ -144,7 +160,7 @@ static void on_read(int fd, short what, void *arg)
 	}
 	
 	buf[len] = '\0';
-	printf("recv: %s, len: %d, what: %d\n", buf, len, what);
+	INFO("recv: %s, len: %d, what: %d\n", buf, len, what);
 }
 
 static void on_listen(int listen, short what, void *arg)
@@ -153,7 +169,7 @@ static void on_listen(int listen, short what, void *arg)
 	socklen_t len = sizeof(peer);
 	int sock = accept4(listen, (struct sockaddr*)&peer, &len, SOCK_NONBLOCK | SOCK_CLOEXEC);
 	if (sock < 0) {
-		perror("accept4");
+		WARN("accept error: %s", strerror(errno));
 		return;
 	}
 	
@@ -168,14 +184,14 @@ static void on_listen(int listen, short what, void *arg)
 	cli->ev = ev;
 	cli_list_save(sock, cli);
 	
-	printf("accept a client: sock(%d)\n", sock);
+	INFO("accept a client: sock(%d)\n", sock);
 }
 
 static int client_create()
 {
 	int sock = socket(AF_INET, SOCK_STREAM, 0);
 	if (sock < 0) {
-		perror("client_create socket\n");
+		WARN("socket failed: %s", strerror(errno));
 		return -1;
 	}
 	
@@ -185,7 +201,7 @@ static int client_create()
 	inet_pton(AF_INET, "127.0.0.1", &peer.sin_addr.s_addr);
 	
 	if (connect(sock, (struct sockaddr*)&peer, sizeof(peer)) < 0) {
-		perror("client_create connect");
+		WARN("connect failed: %s", strerror(errno));
 		goto failed;
 	}
 	
@@ -206,45 +222,58 @@ static void client_destroy(int sock)
 	close(sock);
 }
 
-void event_run()
+/* 注册新事件 */
+int event_register(int fd, void (*on_do)(int, short, void *), void *user_data)
 {
-	static event_action_st *hd = &s_events_hd[s_server];
-	struct event* ev = NULL, *ev_raw = NULL;
-	int sock = 0;
-	
-	s_ev_base = event_base_new();
-	if (!s_ev_base) {
-		printf("client_run event_base_new failed\n");
-		goto failed;
+	if (fd < 0 || !on_do) {
+		DEBUG("event_register failed: invalid param: fd: %d, on_do: %p", fd, on_do);
+		return -1;
+	}
+
+	struct event* ev = event_new(s_ev_base, fd, EV_READ | EV_PERSIST, on_do, user_data ?: s_ev_base);
+	if (!ev) {
+		DEBUG("event_register failed: invalid param: event create failed");
+		return -1;
 	}
 	
-	sock = hd->create();
-	if (sock < 0)
-		goto failed;
-
-	ev = event_new(s_ev_base, sock, EV_READ | EV_PERSIST, hd->on_do, s_ev_base);
 	event_add(ev, NULL);
-	
-	/* 监听原始输入 */
-	hd = &s_events_hd[2];
-	ev_raw = event_new(s_ev_base, sock, EV_READ | EV_PERSIST, hd->on_do, NULL);;
-	event_add(ev_raw, NULL);
-	
-	event_base_dispatch(s_ev_base);
-	
-failed:
-	if (ev)
-		event_free(ev);
-	
-	if (ev_raw)
-		event_free(ev_raw);
-	
-	hd->destroy(sock);
-	
-	if (s_ev_base)
-		event_base_free(s_ev_base);
+	INFO("event_register success: fd: %d", fd);
+	return 0;
 }
 
+static void server_register()
+{
+	struct event_action_st evs[] = {
+		{listener_create, listener_destroy, on_listen, "listtener"},	/* 服务端监听 */
+		//{tun_init, tun_finit, on_read, "raw input"}						/* 原始输入 */
+	};
+	
+	for (int i = 0; i < (int)(sizeof(evs) / sizeof(evs[0])); i++) {
+		int fd = evs[i].create();
+		if (!fd) {
+			ERROR("%s creat failed", evs[i].desc);
+			goto failed;
+		}
+
+		if (event_register(fd, evs[i].on_do, NULL) < 0) {
+			ERROR("%s register failed", evs[i].desc);
+			goto failed;
+		}
+	}
+
+	return;
+
+failed:
+	exit(-1);
+}
+
+/* 服务启动运行：循环事件 */
+void event_run()
+{
+	event_base_dispatch(s_ev_base);
+}
+
+/* 初始化服务环境 */
 int event_init(int server)
 {
 	if (server)
@@ -252,14 +281,12 @@ int event_init(int server)
 	else
 		s_server = 0;
 	
-	struct event_action_st cli_ev = {client_create, client_destroy, on_read};
-	struct event_action_st ser_ev = {listener_create, listener_destroy, on_listen};
-	struct event_action_st raw_ev = {tun_init, tun_finit, on_read};
+	s_ev_base = event_base_new();
+	if (!s_ev_base) {
+		ERROR("event_init event_base_new failed\n");
+		return -1;
+	}
 	
-	s_events_hd[0] = cli_ev;
-	s_events_hd[1] = ser_ev;
-	s_events_hd[2] = raw_ev;
-	
+	server_register();
 	return 0;
 }
-
