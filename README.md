@@ -1,5 +1,5 @@
-# ipsec
-ipsec vpn
+# Fire Engine VPN
+你的新一代vpn引擎--消防车！
 
 1.开启linux的ip代理转发功能,作为路由器角色
 	echo 1 > /proc/sys/net/ipv4/ip_forward
