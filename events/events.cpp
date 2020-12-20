@@ -141,10 +141,11 @@ static void listener_destroy(int sock)
 	close(sock);
 }
 
+/* 读事件回调 */
 static void on_read(int fd, short what, void *arg)
 {
-    char buf[10240];
-    int len = read(fd, buf, sizeof(buf) - 1);
+    char buf[65535];
+    int len = read(fd, buf, sizeof(buf));
 	if (len < 0) {
 		WARN("read failed: %s", strerror(errno));
 		return;
@@ -156,10 +157,10 @@ static void on_read(int fd, short what, void *arg)
 		return;
 	}
 	
-	buf[len] = '\0';
-	INFO("recv: %s, len: %d, what: %d\n", buf, len, what);
+	DEBUG("recv: len: %d, what: %d\n", len, what);
 }
 
+/* 服务端监听回调 */
 static void on_listen(int listen, short what, void *arg)
 {
 	struct sockaddr_in peer;
@@ -253,6 +254,7 @@ int event_register(int fd, void (*on_do)(int, short, void *), void *user_data)
 	return 0;
 }
 
+/* 创建服务端套接字并注册事件 */
 static void server_register()
 {
 	struct event_action_st evs[] = {
@@ -281,6 +283,7 @@ failed:
 	exit(-1);
 }
 
+/* 创建客户端套接字并注册事件 */
 static void client_register()
 {
 	int fd = client_create();
