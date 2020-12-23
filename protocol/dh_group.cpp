@@ -1,5 +1,8 @@
 #include <memory.h>
 #include <assert.h>
+#include <openssl/dh.h>
+#include <openssl/err.h>
+#include <openssl/ssl.h>
 
 #include "dh_group.h"
 #include "log.h"
@@ -21,129 +24,144 @@ void openssl_init()
 #endif
 }
 
-DH * dh_create_ex(int prime_len, int generator, BN_GENCB *cb);
+static BIGNUM * gen_random_data(DH *dh);
 
-DH * dh_create()
+struct dh_group_st {
+	DH *dh;				/* dh群 */
+	BIGNUM *pri_key;	/* dh群私钥 */
+	BIGNUM *pub_key;	/* dh群公钥 */
+};
+
+struct dh_group_st * dh_create()
 {
-	return dh_create_ex(64, DH_GENERATOR_2, NULL);
-}
-
-void dh_destroy(DH *dh)
-{
-	if (dh)
-		DH_free(dh);
-}
-
-static int check_pubkey(DH *dh)
-{
-	assert(dh);
-	int err = 0;
-
-	if (DH_check_pub_key(dh, DH_get0_pub_key(dh), &err) != 1) {
-		if (err & DH_CHECK_PUBKEY_TOO_SMALL)
-			DEBUG("DH_check_pub_key: pubkey too small");
-		else if (err & DH_CHECK_PUBKEY_TOO_LARGE)
-			DEBUG("DH_check_pub_key: pubkey too large");
-		else
-			DEBUG("DH_check_pub_key: unknown error: %d", err);
-		return -1;
-	}
-
-	return 0;
-}
-
-DH * dh_create_ex(int prime_len, int generator, BN_GENCB *cb)
-{
-	int err = 0;
-	DH *dh = DH_new();
-	if (!dh) {
-		DEBUG("DH_new failed");
+	struct dh_group_st *group = (struct dh_group_st*)malloc(sizeof(struct dh_group_st));
+	if (!group)
+		return NULL;
+	
+	group->dh = DH_new_by_nid(NID_ffdhe2048);
+	if (!group->dh) {
+		dh_destroy(group);
 		return NULL;
 	}
 
-	if (DH_generate_parameters_ex(dh , prime_len, generator, cb) != 1) {
-		DEBUG("DH_generate_parameters_ex failed");
+	group->pri_key = gen_random_data(group->dh);
+	if (!group->pri_key) {
+		dh_destroy(group);
+		return NULL;
+	}
+
+	group->pub_key = BN_new();
+	BN_CTX *ctx = BN_CTX_new();
+	if (!group->pub_key || !ctx) {
 		goto failed;
 	}
 
-	if (DH_check(dh, &err) != 1) {
-		if (err & DH_CHECK_P_NOT_PRIME)
-			DEBUG("DH_check: p value is not prime");
-		else if (err & DH_CHECK_P_NOT_SAFE_PRIME)
-			DEBUG("DH_check: p value is not a safe prime");
-		else if (err & DH_UNABLE_TO_CHECK_GENERATOR)
-			DEBUG("DH_check: unable to check the generator value");
-		else if (err & DH_NOT_SUITABLE_GENERATOR)
-			DEBUG("DH_check: the g value is not a generator");
-		else
-			DEBUG("DH_check: unknown error: %d", err);
-		goto failed;
-	}
-
-	if (DH_generate_key(dh) != 1) {
-		DEBUG("DH_generate_key failed");
-		goto failed;
-	}
-
-	if (check_pubkey(dh) < 0)
+	/* pub = g ^ pri_key % p */
+	if (BN_mod_exp(group->pub_key, DH_get0_g(group->dh), group->pri_key, DH_get0_p(group->dh), ctx) != 1)
 		goto failed;
 
-	return dh;
+	BN_CTX_free(ctx);
+	return group;
 
 failed:
-	if (dh)
-		DH_free(dh);
+	if (ctx)
+		BN_CTX_free(ctx);
+	
+	dh_destroy(group);
 	return NULL;
 }
 
-int dh_pubkey(DH *dh, unsigned char *pubkey, unsigned int *osize)
+void dh_destroy(struct dh_group_st *group)
 {
-	if (!dh || !pubkey || !osize)
-		return -1;
+	if (!group)
+		return;
+	
+	if (group->dh)
+		DH_free(group->dh);
+	
+	if (group->pri_key)
+		BN_free(group->pri_key);
 
-	const BIGNUM *pub = DH_get0_pub_key(dh);
-	if (!pub) {
-		return -1;
+	if (group->pub_key)
+		BN_free(group->pub_key);
+	
+	free(group);
+}
+
+static BIGNUM * gen_random_data(DH *dh)
+ {
+	BIGNUM *rand = BN_new();
+	if (!rand)
+		return NULL;
+	
+	if (BN_rand_range(rand, DH_get0_p(dh)) != 1) {
+		BN_free(rand);
+		return NULL;
 	}
 
-	int size = BN_num_bytes(pub);
-	if (size <= 0 || (unsigned int)size >= *osize) {
+	while (BN_is_zero(rand)) {
+		BN_rand_range(rand, DH_get0_p(dh));
+	}
+
+	return rand;
+}
+
+int dh_pubkey(struct dh_group_st *group, uint8_t *pubkey, uint32_t *osize)
+{
+	if (!group || !pubkey || !osize)
+		return -1;
+	
+	int size = BN_num_bytes(group->pub_key);
+	if (size <= 0 || (uint32_t)size > *osize) {
 		DEBUG("get pubkey failed: key size: %d, out size: %d", size, *osize);
 		return -1;
 	}
 
-	*osize = BN_bn2bin(pub, pubkey);
-	assert(*osize == (unsigned int)size);
-
-	DUMP_HEX("dh_pubkey", pubkey, *osize);
+	*osize = BN_bn2bin(group->pub_key, pubkey);
+	assert(*osize == (uint32_t)size);
 	return 0;
 }
 
-int dh_sharekey(DH *dh, unsigned char *pubkey, unsigned int publen, 
-			unsigned char *sharekey, unsigned int *osize)
+int dh_sharekey(struct dh_group_st *group, uint8_t *pubkey, uint32_t publen, 
+			uint8_t *sharekey, uint32_t *osize)
 {
-	if (!dh || !pubkey || !sharekey || !publen || !osize)
+	int size = 0;
+	if (!group || !pubkey || !sharekey || !publen || !osize)
 		return -1;
 	
-	if (*osize < publen) {
-		DEBUG("out buf too small: out: %d, expect: %d", *osize, publen);
-		return -1;
-	}
-
-	DUMP_HEX("dh_sharekey pubkey", pubkey, publen);
 	BIGNUM *pub = BN_bin2bn(pubkey, publen, NULL);
 	if (!pub) {
 		DUMP_HEX("invalid pubkey", pubkey, publen);
 		return -1;
 	}
 
-	int ret = DH_compute_key(sharekey, pub, dh);
-	if (ret <= 0) {
-		DEBUG_OPENSSL_ERROR();
-		BN_free(pub);
-		return -1;
-	}
+	BIGNUM *key = BN_new();
+	BN_CTX *ctx = BN_CTX_new();
+	if (!key || !ctx)
+		goto failed;
 	
-	*osize = ret;
+	/* key = shared_num ^ m_pri_key % p */
+	if (BN_mod_exp(key, pub, group->pri_key, DH_get0_p(group->dh), ctx) != 1)
+		goto failed;
+	
+	BN_CTX_free(ctx);
+	ctx = NULL;
+
+	size = BN_num_bytes(key);
+	if (size <= 0 || (uint32_t)size > *osize) {
+		DEBUG("get sharekey failed: key size: %d, out size: %d", size, *osize);
+		goto failed;
+	}
+
+	*osize = BN_bn2bin(key, sharekey);
+	assert(*osize == (uint32_t)size);
 	return 0;
+
+failed:
+	if (key)
+		BN_free(key);
+	if (ctx)
+		BN_CTX_free(ctx);
+	
+	return -1;
 }

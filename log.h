@@ -3,6 +3,9 @@
 
 #include <string>
 #include <assert.h>
+#include <stdint.h>
+
+#define MIN(a, b)	((a) < (b) ? (a) : (b))
 
 #define __LOG(level, fmt, args...)		do {	\
 			std::string __file(__FILE__);		\
@@ -20,13 +23,15 @@
 #define ERROR(fmt, args...)		\
 		__LOG("[error]", fmt, ## args)
 
-#define DUMP_HEX(str, buf, len)	do {			\
-		char tmp[2048], *p = tmp;				\
-		for (unsigned int i = 0; i < (unsigned int)len; i++) {	\
-			if (i && i % 8 == 0) {p += snprintf(p, sizeof(tmp) - (p - tmp), "\n");}		\
-			p += snprintf(p, sizeof(tmp) - (p - tmp), "%02x ", ((uint8_t*)buf)[i]);		\
+#define DUMP_HEX(str, data, len)	do {					\
+		char tmp[2048], *p = tmp;							\
+		uint32_t __len = MIN(sizeof(tmp), (uint32_t)len);		\
+		for (uint32_t i = 0; i < __len; i++) {				\
+			if (i && i % 8 == 0) 							\
+				p += snprintf(p, sizeof(tmp) - (p - tmp) - 1, "\n");						\
+			p += snprintf(p, sizeof(tmp) - (p - tmp) - 1, "%02x ", ((uint8_t*)data)[i]);	\
 		}	\
-		DEBUG("%s:\n%s", (const char*)str, tmp);	\
+		DEBUG("%s ==> len:%d:\n%s", (const char*)str, len, tmp);	\
 	} while (0)
 
 

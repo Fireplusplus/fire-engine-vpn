@@ -1,20 +1,19 @@
 #ifndef __DH_GROUP_20201220__
 #define __DH_GROUP_20201220__
 
-#include <openssl/dh.h>
-#include <openssl/err.h>
-#include <openssl/ssl.h>
 #include "dh_group.h"
 
 void openssl_init();
 
-DH * dh_create();
+struct dh_group_st * dh_create();
 
-void dh_destroy(DH *dh);
+void dh_destroy(struct dh_group_st *group);
 
-int dh_pubkey(DH *dh, unsigned char *pubkey, unsigned int *osize);
+/* 获取dh群公钥 */
+int dh_pubkey(struct dh_group_st *group, uint8_t *pubkey, uint32_t *osize);
 
-int dh_sharekey(DH *dh, unsigned char *pubkey, unsigned int len, 
-			unsigned char *sharekey, unsigned int *osize);
+/* 获取dh群公共享密钥 */
+int dh_sharekey(struct dh_group_st *group, uint8_t *pubkey, uint32_t publen, 
+			uint8_t *sharekey, uint32_t *osize);
 
 #endif
