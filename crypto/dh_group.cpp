@@ -24,12 +24,18 @@ void openssl_init()
 #endif
 }
 
+void debug_openssl_error()
+{
+	DEBUG_OPENSSL_ERROR();
+}
+
 static BIGNUM * gen_random_data(DH *dh);
 
 struct dh_group_st {
 	DH *dh;				/* dh群 */
 	BIGNUM *pri_key;	/* dh群私钥 */
 	BIGNUM *pub_key;	/* dh群公钥 */
+	int key_size;		/* 密钥长度 */
 };
 
 struct dh_group_st * dh_create()
@@ -50,6 +56,8 @@ struct dh_group_st * dh_create()
 		return NULL;
 	}
 
+	group->key_size = BN_num_bytes(group->pri_key);
+	
 	group->pub_key = BN_new();
 	BN_CTX *ctx = BN_CTX_new();
 	if (!group->pub_key || !ctx) {
@@ -88,6 +96,7 @@ void dh_destroy(struct dh_group_st *group)
 	free(group);
 }
 
+/* 生成随机数 */
 static BIGNUM * gen_random_data(DH *dh)
  {
 	BIGNUM *rand = BN_new();
@@ -106,6 +115,13 @@ static BIGNUM * gen_random_data(DH *dh)
 	return rand;
 }
 
+/* 获取密钥长度 */
+int dh_keysize(struct dh_group_st *group)
+{
+	return group ? group->key_size : -1;
+}
+
+/* 生成公钥 */
 int dh_pubkey(struct dh_group_st *group, uint8_t *pubkey, uint32_t *osize)
 {
 	if (!group || !pubkey || !osize)
@@ -122,6 +138,7 @@ int dh_pubkey(struct dh_group_st *group, uint8_t *pubkey, uint32_t *osize)
 	return 0;
 }
 
+/* 生成共享密钥 */
 int dh_sharekey(struct dh_group_st *group, uint8_t *pubkey, uint32_t publen, 
 			uint8_t *sharekey, uint32_t *osize)
 {
@@ -164,4 +181,33 @@ failed:
 		BN_CTX_free(ctx);
 	
 	return -1;
+}
+
+void dh_group_example()
+{
+	openssl_init();
+
+	struct dh_group_st *dh1 = dh_create();
+	struct dh_group_st *dh2 = dh_create();
+
+	unsigned char pubkey1[1024];
+	unsigned char pubkey2[1024];
+	unsigned int sz1 = sizeof(pubkey1), sz2 = sizeof(pubkey2);
+	dh_pubkey(dh1, pubkey1, &sz1);
+	dh_pubkey(dh2, pubkey2, &sz2);
+
+	unsigned char sharekey1[1024];
+	unsigned char sharekey2[1024];
+	unsigned int s1 = sizeof(sharekey1), s2 = sizeof(sharekey2);
+
+	dh_sharekey(dh1, pubkey2, sz1, sharekey1, &s1);
+	dh_sharekey(dh2, pubkey1, sz1, sharekey2, &s2);
+	
+	DUMP_HEX("dh1", sharekey1, s1);
+	DUMP_HEX("dh2", sharekey2, s2);
+
+	if (memcmp(sharekey1, sharekey2, s1) == 0)
+		printf("success\n");
+	else
+		printf("failed\n");
 }
