@@ -7,12 +7,17 @@
 #include "log.h"
 
 struct crypto_st {
-	uint8_t key[32];			/* 密钥 */
-	uint32_t key_size;			/* 密钥长度 */
-	EVP_CIPHER_CTX *enc;		/* 加密器 */
-	EVP_CIPHER_CTX *dec;		/* 解密器 */
+	uint8_t key[32];			/**< 密钥 */
+	uint32_t key_size;			/**< 密钥长度 */
+	EVP_CIPHER_CTX *enc;		/**< 加密器 */
+	EVP_CIPHER_CTX *dec;		/**< 解密器 */
 };
 
+/** @brief 创建密码管理器
+  * @param[in] key 密钥
+  * @param[in] size 密钥长度		
+  * @return 成功返回初始化的密码管理器，失败返回NULL
+  */	
 struct crypto_st * crypto_create(const uint8_t *key, uint32_t size)
 {
 	if (!key || !size)
@@ -49,6 +54,10 @@ failed:
 	return NULL;
 }
 
+/** @brief 销毁密码管理器
+  * @param[in] crypt 密码管理器	
+  * @return 无
+  */
 void crypto_destroy(struct crypto_st *crypt)
 {
 	if (!crypt)
@@ -63,7 +72,10 @@ void crypto_destroy(struct crypto_st *crypt)
 	free(crypt);
 }
 
-/* 获取加密后数据长度 */
+/** @brief 获取加密后数据的长度
+  * @param[in] len 数据长度
+  * @return 加密后数据长度
+  */
 int crypto_encrypt_size(uint32_t len)
 {
 	if (len % AES_BLOCK_SIZE)
@@ -72,7 +84,13 @@ int crypto_encrypt_size(uint32_t len)
 	return len;
 }
 
-/* 加密 */
+/** @brief 加密
+  * @param[in] in 待加密数据
+  * @param[in] isize 待加密数据长度
+  * @param[out] out 输出缓冲区
+  * @param[out] osize 输入表示输出缓冲区长度，输出表示加密后长度
+  * @return 0：成功 非0：失败
+  */
 int crypto_encrypt(const struct crypto_st *crypt, const uint8_t *in, uint32_t isize,
 					uint8_t *out, uint32_t *osize)
 {
@@ -94,7 +112,11 @@ int crypto_encrypt(const struct crypto_st *crypt, const uint8_t *in, uint32_t is
 	return 0;
 }
 
-/* 解密 */
+/** @brief 解密
+  * @param[inout] data 输入表示待解密数据，输出表示解密后数据
+  * @param[inout] isize 输入表示待加密数据长度，输出表示解密后数据长度
+  * @return 0：成功 非0：失败
+  */
 int crypto_decrypt(const struct crypto_st *crypt, uint8_t *data, uint32_t *size)
 {
 	if (!crypt || !data || !size)
