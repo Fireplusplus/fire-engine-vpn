@@ -16,7 +16,7 @@ void usage()
 
 int main(int argc, char *argv[])
 {
-	/*if (argc <= 1)
+	if (argc <= 1)
 		usage();
 	
 	if (event_init(argv[1][0] == 's' ? 1 : 0) < 0) {
@@ -25,9 +25,7 @@ int main(int argc, char *argv[])
 
 	(void)event_run();
 	
-	INFO("event_run over !\n");*/
-
-	crypto_example();
+	INFO("event_run over !\n");
 
 	return 0;
 }

@@ -29,7 +29,8 @@ struct ser_cli_info_st {
 
 static unordered_map<int, ser_cli_info_st*> s_sc_info_list;		/* 事件缓存表 */
 struct event_base *s_ev_base;
-static int s_server;											/* 是否服务端 */
+/* 是否服务端：临时变量，用以区分是否监听原始输入，方便在一台虚拟机上调试 */
+static int s_server;
 
 ser_cli_info_st * sc_info_create()
 {
@@ -202,8 +203,8 @@ static int client_create()
 	
 	struct sockaddr_in peer;
 	peer.sin_family = AF_INET;
-	peer.sin_port = htons(6666);
-	inet_pton(AF_INET, "127.0.0.1", &peer.sin_addr.s_addr);
+	peer.sin_port = htons(get_server_port());
+	inet_pton(AF_INET, get_server_ip(), &peer.sin_addr.s_addr);
 	
 	if (connect(sock, (struct sockaddr*)&peer, sizeof(peer)) < 0) {
 		WARN("connect failed: %s", strerror(errno));
