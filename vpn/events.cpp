@@ -12,6 +12,10 @@
 
 #include "log.h"
 #include "tun.h"
+#include "mem.h"
+#include "events.h"
+#include "crypto.h"
+#include "dh_group.h"
 #include "local_config.h"
 
 using namespace std;
@@ -23,21 +27,17 @@ struct event_action_st {
 	const char *desc;
 };
 
-struct ser_cli_info_st {
-	struct event *ev;
-};
-
-static unordered_map<int, ser_cli_info_st*> s_sc_info_list;		/* 事件缓存表 */
+static unordered_map<int, ser_cli_node*> s_sc_info_list;		/* 事件缓存表 */
 struct event_base *s_ev_base;
 /* 是否服务端：临时变量，用以区分是否监听原始输入，方便在一台虚拟机上调试 */
 static int s_server;
 
-ser_cli_info_st * sc_info_create()
+ser_cli_node * sc_info_create()
 {
-	return (ser_cli_info_st *)calloc(1, sizeof(ser_cli_info_st));
+	return (ser_cli_node *)alloc_die(sizeof(ser_cli_node));
 }
 
-void sc_info_destroy(ser_cli_info_st *sc)
+void sc_info_destroy(ser_cli_node *sc)
 {
 	if (!sc)
 		return;
@@ -46,14 +46,18 @@ void sc_info_destroy(ser_cli_info_st *sc)
 		event_del(sc->ev);
 		event_free(sc->ev);
 	}
+
+	crypto_destroy(sc->crypt);
+	dh_destroy(sc->dh);
+
 	free(sc);
 }
 
-void sc_info_add(int fd, ser_cli_info_st *sc)
+void sc_info_add(int fd, ser_cli_node *sc)
 {
 	assert(sc);
 	
-	unordered_map<int, ser_cli_info_st*>::iterator it = s_sc_info_list.find(fd);
+	unordered_map<int, ser_cli_node*>::iterator it = s_sc_info_list.find(fd);
 	if (it != s_sc_info_list.end()) {
 		sc_info_destroy(it->second);
 	}
@@ -63,7 +67,7 @@ void sc_info_add(int fd, ser_cli_info_st *sc)
 
 void sc_info_del(int fd)
 {
-	unordered_map<int, ser_cli_info_st*>::iterator it = s_sc_info_list.find(fd);
+	unordered_map<int, ser_cli_node*>::iterator it = s_sc_info_list.find(fd);
 	if (it != s_sc_info_list.end()) {
 		sc_info_destroy(it->second);
 		s_sc_info_list.erase(it);
@@ -180,13 +184,14 @@ static void on_listen(int listen, short what, void *arg)
 
 	event_add(ev, NULL);
 	
-	ser_cli_info_st *sc = sc_info_create();
+	ser_cli_node *sc = sc_info_create();
 	if (!sc) {
 		event_del(ev);
 		WARN("create sc info failed: no memory");
 		return;
 	}
 	
+	sc->sock = sock;
 	sc->ev = ev;
 	sc_info_add(sock, sc);
 	
@@ -243,13 +248,14 @@ int event_register(int fd, void (*on_do)(int, short, void *), void *user_data)
 	
 	event_add(ev, NULL);
 
-	struct ser_cli_info_st *sc = sc_info_create();
+	struct ser_cli_node *sc = sc_info_create();
 	if (!sc) {
 		WARN("create sc info failed: no memory");
 		event_del(ev);
 		return -1;
 	}
 	
+	sc->sock = fd;
 	sc->ev = ev;
 	sc_info_add(fd, sc);
 	return 0;

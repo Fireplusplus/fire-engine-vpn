@@ -1,15 +1,15 @@
 ROOT_PATH=$(shell pwd)
 SERVER_PATH=$(ROOT_PATH)
-EVENTS_PATH=$(ROOT_PATH)/events
+VPN_PATH=$(ROOT_PATH)/vpn
 TUN_PATH=$(ROOT_PATH)/tun
 CONFIG_PATH=$(ROOT_PATH)/config
-CRYPTO_PATH=$(ROOT_PATH)/crypto
+UTILS_PATH=$(ROOT_PATH)/utils
 
 SERVER=ipsec
 CXX=g++
 FLAGS= -Wall -Werror -levent -lcrypto -lssl -g
-SUBDIRS=$(SERVER_PATH) $(EVENTS_PATH) $(TUN_PATH) $(CONFIG_PATH) $(CRYPTO_PATH)
-INCLUDE=-I$(SERVER_PATH) -I$(EVENTS_PATH) -I$(TUN_PATH) -I$(CONFIG_PATH) -I$(CRYPTO_PATH)
+SUBDIRS=$(SERVER_PATH) $(VPN_PATH) $(TUN_PATH) $(CONFIG_PATH) $(UTILS_PATH)
+INCLUDE=-I$(SERVER_PATH) -I$(VPN_PATH) -I$(TUN_PATH) -I$(CONFIG_PATH) -I$(UTILS_PATH)
 
 SER_SRC=$(shell ls $(SUBDIRS) | grep -E ".cpp")
 SER_OBJ=$(SER_SRC:.cpp=.o)
@@ -22,13 +22,13 @@ $(SERVER):$(SER_OBJ)
 	$(CXX) -o $(@) $(^) $(FLAGS)
 %.o:$(SERVER_PATH)/%.cpp
 	$(CXX) -c $(<) $(INCLUDE) $(FLAGS)
-%.o:$(EVENTS_PATH)/%.cpp
+%.o:$(VPN_PATH)/%.cpp
 	$(CXX) -c $(<) $(INCLUDE) $(FLAGS)
 %.o:$(TUN_PATH)/%.cpp
 	$(CXX) -c $(<) $(INCLUDE) $(FLAGS)
 %.o:$(CONFIG_PATH)/%.cpp
 	$(CXX) -c $(<) $(INCLUDE) $(FLAGS)
-%.o:$(CRYPTO_PATH)/%.cpp
+%.o:$(UTILS_PATH)/%.cpp
 	$(CXX) -c $(<) $(INCLUDE) $(FLAGS)
 
 .PHONY:clean

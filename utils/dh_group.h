@@ -16,7 +16,7 @@ int dh_keysize(struct dh_group_st *group);
 /* 获取dh群公钥 */
 int dh_pubkey(struct dh_group_st *group, uint8_t *pubkey, uint32_t *osize);
 
-/* 获取dh群公共享密钥 */
+/* 获取dh群共享密钥 */
 int dh_sharekey(struct dh_group_st *group, uint8_t *pubkey, uint32_t publen, 
 			uint8_t *sharekey, uint32_t *osize);
 
