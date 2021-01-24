@@ -68,17 +68,30 @@ enum {
 #define CMD_ENC_BEGIN CMD_AUTH_C
 #define CMD_ENC_END CMD_END
 
-struct cmd_map {
+struct cmd_map_st {
 	int cmd;
 	do_cmd fn;
 };
 
-static struct cmd_map s_do_cmd[] = {
+static struct cmd_map_st s_do_cmd[] = {
 					{CMD_BEGIN,		NULL},
 					{CMD_KEY, 		on_cmd_key},
 					{CMD_AUTH_C, 	on_cmd_auth_c},
 					{CMD_AUTH_R, 	on_cmd_auth_r},
 					{CMD_END,		NULL}
+				};
+
+struct cmd_desc_st {
+	int cmd;
+	const char *desc;
+};
+
+static struct cmd_desc_st s_cmd_desc[] = {
+					{CMD_BEGIN,		"CMD_BEGIN"},
+					{CMD_KEY, 		"CMD_KEY"},
+					{CMD_AUTH_C, 	"CMD_AUTH_C"},
+					{CMD_AUTH_R, 	"CMD_AUTH_R"},
+					{CMD_END,		"CMD_END"}
 				};
 
 int on_cmd(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
@@ -92,6 +105,8 @@ int on_cmd(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
 		DEBUG("invalid cmd head: cmd: %u, cmd_check: %u", hdr->cmd, hdr->cmd_check);
 		return -1;
 	}
+
+	DEBUG("recv cmd: %s, old_len: %u, data_len: %u", s_cmd_desc[hdr->cmd].desc, hdr->old_len, hdr->data_len);
 
 	uint32_t size = hdr->data_len;
 
@@ -161,6 +176,7 @@ static int cmd_send(const ser_cli_node *sc, uint16_t cmd, uint8_t *buf, uint32_t
 		return -1;
 	}
 
+	DEBUG("send cmd: %s, old_len: %u, data_len: %u", s_cmd_desc[hdr->cmd].desc, hdr->old_len, hdr->data_len);
 	free(hdr);
 	return 0;
 }

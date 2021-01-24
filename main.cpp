@@ -15,19 +15,35 @@ void usage()
 	exit(0);
 }
 
+void test(const char *opt)
+{
+	INFO("test: %s", opt);
+	
+	if (strncmp(opt, "crypto", strlen("crypto")) == 0)
+		crypto_example();
+	else {
+		INFO("unknow test !");
+	}
+
+	exit(0);
+}
+
 int main(int argc, char *argv[])
 {
 	if (argc <= 1)
 		usage();
 	
 	int server = 0;
-    int opt = getopt(argc, argv, "sc");
+	int opt = getopt(argc, argv, "sct:");
 	switch (opt) {
 		case 's':
 			server = 1;
 			break;
 		case 'c':
 			server = 0;
+			break;
+		case 't':
+			test(optarg);
 			break;
 		default:
 			usage();

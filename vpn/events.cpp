@@ -190,7 +190,7 @@ static void on_listen(int listen, short what, void *arg)
 	sc->sock = sock;
 	sc->server = 1;
 	
-	sc->ev = event_new((struct event_base*)arg, sock, EV_READ | EV_ET, on_read, sc);
+	sc->ev = event_new((struct event_base*)arg, sock, EV_READ | EV_PERSIST, on_read, sc);
 	if (!sc->ev) {
 		WARN("create event failed");
 		sc_info_destroy(sc);
