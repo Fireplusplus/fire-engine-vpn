@@ -16,3 +16,13 @@ const char * get_server_ip()
 {
 	return s_server_conf.ip_listen;
 }
+
+const char * get_branch_user()
+{
+	return "test";
+}
+
+const char * get_branch_pwd()
+{
+	return "testpwd";
+}

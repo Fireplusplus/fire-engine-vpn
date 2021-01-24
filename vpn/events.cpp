@@ -17,6 +17,7 @@
 #include "crypto.h"
 #include "dh_group.h"
 #include "local_config.h"
+#include "simple_proto.h"
 
 using namespace std;
 
@@ -29,7 +30,6 @@ struct event_action_st {
 
 static unordered_map<int, ser_cli_node*> s_sc_info_list;		/* 事件缓存表 */
 struct event_base *s_ev_base;
-/* 是否服务端：临时变量，用以区分是否监听原始输入，方便在一台虚拟机上调试 */
 static int s_server;
 
 ser_cli_node * sc_info_create()
@@ -163,6 +163,10 @@ static void on_read(int fd, short what, void *arg)
 	}
 	
 	DEBUG("recv: len: %d, what: %d\n", len, what);
+	if (on_cmd((ser_cli_node *)arg, (uint8_t *)&buf, len) < 0) {
+		DEBUG("on cmd failed");
+		sc_info_del(fd);
+	}
 }
 
 /* 服务端监听回调 */
@@ -175,24 +179,26 @@ static void on_listen(int listen, short what, void *arg)
 		WARN("accept error: %s", strerror(errno));
 		return;
 	}
-	
-	struct event* ev = event_new((struct event_base*)arg, sock, EV_READ | EV_ET, on_read, NULL);
-	if (!ev) {
-		WARN("create event failed");
+
+	ser_cli_node *sc = sc_info_create();
+	if (!sc) {
+		WARN("create sc info failed");
+		close(sock);
 		return;
 	}
 
-	event_add(ev, NULL);
+	sc->sock = sock;
+	sc->server = 1;
 	
-	ser_cli_node *sc = sc_info_create();
-	if (!sc) {
-		event_del(ev);
-		WARN("create sc info failed: no memory");
+	sc->ev = event_new((struct event_base*)arg, sock, EV_READ | EV_ET, on_read, sc);
+	if (!sc->ev) {
+		WARN("create event failed");
+		sc_info_destroy(sc);
+		close(sock);
 		return;
 	}
-	
-	sc->sock = sock;
-	sc->ev = ev;
+
+	event_add(sc->ev, NULL);
 	sc_info_add(sock, sc);
 	
 	INFO("accept a client: sock(%d)\n", sock);
@@ -233,31 +239,36 @@ static void client_destroy(int sock)
 }
 
 /* 注册新事件 */
-int event_register(int fd, void (*on_do)(int, short, void *), void *user_data)
+int event_register(int fd, void (*on_do)(int, short, void *), void *user_data, int server)
 {
 	if (fd < 0 || !on_do) {
 		DEBUG("invalid param: fd: %d, on_do: %p", fd, on_do);
 		return -1;
 	}
 
-	struct event* ev = event_new(s_ev_base, fd, EV_READ | EV_PERSIST, on_do, user_data ?: s_ev_base);
-	if (!ev) {
-		DEBUG("invalid param: event create failed");
-		return -1;
-	}
-	
-	event_add(ev, NULL);
-
 	struct ser_cli_node *sc = sc_info_create();
 	if (!sc) {
-		WARN("create sc info failed: no memory");
-		event_del(ev);
+		WARN("create sc info failed");
+		return -1;
+	}
+
+	sc->sock = fd;
+	sc->server = server;
+
+	sc->ev = event_new(s_ev_base, fd, EV_READ | EV_PERSIST, 
+						on_do, server ? (void*)s_ev_base : (void*)sc);
+	if (!sc->ev) {
+		DEBUG("invalid param: event create failed");
+		sc_info_destroy(sc);
 		return -1;
 	}
 	
-	sc->sock = fd;
-	sc->ev = ev;
+	event_add(sc->ev, NULL);
 	sc_info_add(fd, sc);
+
+	if (!server && start_connect(sc) < 0)	/* 客户端发起主动协商 */
+		return -1;
+	
 	return 0;
 }
 
@@ -266,7 +277,7 @@ static void server_register()
 {
 	struct event_action_st evs[] = {
 		{listener_create, listener_destroy, on_listen, "listtener"},	/* 服务端监听 */
-		//{tun_init, tun_finit, on_read, "raw input"}						/* 原始输入 */
+		//{tun_init, tun_finit, on_read, "raw input"},					/* 原始输入 */
 	};
 	
 	for (int i = 0; i < (int)(sizeof(evs) / sizeof(evs[0])); i++) {
@@ -276,7 +287,7 @@ static void server_register()
 			goto failed;
 		}
 
-		if (event_register(fd, evs[i].on_do, NULL) < 0) {
+		if (event_register(fd, evs[i].on_do, NULL, 1) < 0) {
 			ERROR("%s register failed", evs[i].desc);
 			goto failed;
 		}
@@ -298,7 +309,7 @@ static void client_register()
 		return;
 	}
 
-	if (event_register(fd, on_read, NULL) < 0) {
+	if (event_register(fd, on_read, NULL, 0) < 0) {
 		goto failed;
 	}
 
@@ -329,11 +340,10 @@ int event_init(int server)
 		return -1;
 	}
 	
-	server_register();
-
-	if (!s_server) {
+	if (s_server)
+		server_register();
+	else
 		client_register();
-	}
 
 	return 0;
 }

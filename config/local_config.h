@@ -4,4 +4,7 @@
 short get_server_port();
 const char * get_server_ip();
 
+const char * get_branch_user();
+const char * get_branch_pwd();
+
 #endif

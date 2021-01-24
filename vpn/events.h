@@ -1,11 +1,13 @@
-#ifndef __VENT_20201213__
-#define __VENT_20201213__
+#ifndef __EVENT_20201213__
+#define __EVENT_20201213__
 
 struct ser_cli_node {
 	int sock;
 	struct event *ev;
 	struct dh_group_st *dh;
 	struct crypto_st *crypt;
+	
+	uint8_t server:1;
 };
 
 /* 服务启动运行：循环事件 */

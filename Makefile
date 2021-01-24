@@ -5,7 +5,7 @@ TUN_PATH=$(ROOT_PATH)/tun
 CONFIG_PATH=$(ROOT_PATH)/config
 UTILS_PATH=$(ROOT_PATH)/utils
 
-SERVER=ipsec
+SERVER=fire-vpn
 CXX=g++
 FLAGS= -Wall -Werror -levent -lcrypto -lssl -g
 SUBDIRS=$(SERVER_PATH) $(VPN_PATH) $(TUN_PATH) $(CONFIG_PATH) $(UTILS_PATH)

@@ -43,6 +43,7 @@ struct crypto_st * crypto_create(const uint8_t *key, uint32_t size)
 	
 	if (EVP_CIPHER_CTX_set_key_length(crypt->enc, crypt->key_size) != 1 ||
 			EVP_CIPHER_CTX_set_key_length(crypt->dec, crypt->key_size) != 1) {
+		DEBUG("key_size: %u", crypt->key_size);
 		debug_openssl_error();
 		goto failed;
 	}
@@ -98,12 +99,14 @@ int crypto_encrypt(const struct crypto_st *crypt, const uint8_t *in, uint32_t is
 		return -1;
 	
 	int enc_len = 0, final_len = 0;
-	if (EVP_EncryptUpdate(crypt->enc, out, &enc_len, in, isize) != 1) {
+	if (EVP_EncryptUpdate(crypt->enc, out, &enc_len, in, isize) != 1 ||
+			enc_len < 0) {
 		debug_openssl_error();
 		return -1;
 	}
 	
-	if (EVP_EncryptFinal_ex(crypt->enc, out + enc_len, &final_len) != 1) {
+	if ((uint32_t)enc_len < isize && 
+			EVP_EncryptFinal_ex(crypt->enc, out + enc_len, &final_len) != 1) {
 		debug_openssl_error();
 		return -1;
 	}
@@ -123,12 +126,14 @@ int crypto_decrypt(const struct crypto_st *crypt, uint8_t *data, uint32_t *size)
 		return -1;
 
 	int dec_len = 0, final_len = 0;
-	if (EVP_DecryptUpdate(crypt->dec, data, &dec_len, data, *size) != 1) {
+	if (EVP_DecryptUpdate(crypt->dec, data, &dec_len, data, *size) != 1 ||
+			dec_len < 0) {
 		debug_openssl_error();
 		return -1;
 	}
 	
-	if (EVP_DecryptFinal_ex(crypt->dec, data + dec_len, &final_len) != 1) {
+	if ((uint32_t)dec_len < *size && 
+			EVP_DecryptFinal_ex(crypt->dec, data + dec_len, &final_len) != 1) {
 		debug_openssl_error();
 		return -1;
 	}
@@ -139,7 +144,7 @@ int crypto_decrypt(const struct crypto_st *crypt, uint8_t *data, uint32_t *size)
 
 void crypto_example()
 {
-	char key[16] = "1234567890";
+	char key[16] = "123456789012345";
 	char src[] = "abcdefghijklmnopqrstuvwxyz";
 	char enc[1024];
 	uint32_t enc_size = sizeof(enc);

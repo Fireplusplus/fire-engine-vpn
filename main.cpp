@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "log.h"
 #include "events.h"
@@ -19,7 +20,21 @@ int main(int argc, char *argv[])
 	if (argc <= 1)
 		usage();
 	
-	if (event_init(argv[1][0] == 's' ? 1 : 0) < 0) {
+	int server = 0;
+    int opt = getopt(argc, argv, "sc");
+	switch (opt) {
+		case 's':
+			server = 1;
+			break;
+		case 'c':
+			server = 0;
+			break;
+		default:
+			usage();
+			return 0;
+	};
+	
+	if (event_init(server) < 0) {
 		return -1;
 	}
 
