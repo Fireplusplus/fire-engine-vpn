@@ -270,9 +270,7 @@ static int cmd_auth_r_send(ser_cli_node *sc, uint16_t code)
 	ar.code = code;
 	
 	DEBUG("cmd auth_r send: code: %u", ar.code);
-
-	cmd_send(sc, CMD_AUTH_C, (uint8_t*)&ar, sizeof(struct cmd_auth_c_st));
-	return cmd_send(sc, CMD_AUTH_C, (uint8_t*)&ar, sizeof(struct cmd_auth_c_st));
+	return cmd_send(sc, CMD_AUTH_R, (uint8_t*)&ar, sizeof(struct cmd_auth_r_st));
 }
 
 static int on_cmd_auth_c(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
