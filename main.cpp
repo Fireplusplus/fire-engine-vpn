@@ -11,7 +11,25 @@
 
 void usage()
 {
-	printf("Usage: ./server [s|c]\n");
+	const char *help[] = {
+		"  -s                    run in server mode",
+		"  -c                    run in client mode",
+		"  -t                    test the module",
+		"      [group]             test dh group module",
+		"      [crypto]            test encrypt/decrypt module",
+		"  -h                    show help",
+		NULL
+	};
+
+	printf("Usage: fire-vpn [opt] param\n");
+
+	int i = 0;
+	while (help[i]) {
+		printf("\n");
+		printf(help[i++]);
+	};
+
+	printf("\n");
 	exit(0);
 }
 
@@ -19,7 +37,9 @@ void test(const char *opt)
 {
 	INFO("test: %s", opt);
 	
-	if (strncmp(opt, "crypto", strlen("crypto")) == 0)
+	if (strncmp(opt, "group", strlen("group")) == 0)
+		dh_group_example();
+	else if (strncmp(opt, "crypto", strlen("crypto")) == 0)
 		crypto_example();
 	else {
 		INFO("unknow test !");
@@ -45,9 +65,12 @@ int main(int argc, char *argv[])
 		case 't':
 			test(optarg);
 			break;
+		case 'h':
+			usage();
+			break;
 		default:
 			usage();
-			return 0;
+			break;
 	};
 	
 	if (event_init(server) < 0) {

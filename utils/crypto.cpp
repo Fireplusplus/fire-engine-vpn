@@ -27,7 +27,7 @@ struct crypto_st * crypto_create(const uint8_t *key, uint32_t size)
 	if (!crypt)
 		return NULL;
 	
-	uint8_t iv[EVP_MAX_IV_LENGTH] = {0};
+	//uint8_t iv[EVP_MAX_IV_LENGTH] = {0};
 
 	crypt->enc = EVP_CIPHER_CTX_new();
 	crypt->dec = EVP_CIPHER_CTX_new();
@@ -37,16 +37,18 @@ struct crypto_st * crypto_create(const uint8_t *key, uint32_t size)
 	crypt->key_size = MIN(sizeof(crypt->key), size);
 	memcpy(crypt->key, key, crypt->key_size);
 	
-	if (EVP_EncryptInit_ex(crypt->enc, EVP_aes_128_ecb(), NULL, crypt->key, iv) != 1 ||
+	/*if (EVP_EncryptInit_ex(crypt->enc, EVP_aes_128_ecb(), NULL, crypt->key, iv) != 1 ||
 			EVP_DecryptInit_ex(crypt->dec, EVP_aes_128_ecb(), NULL, crypt->key, iv) != 1)
 		goto failed;
+
+	DUMP_HEX("iv", iv, sizeof(iv));
 	
 	if (EVP_CIPHER_CTX_set_key_length(crypt->enc, crypt->key_size) != 1 ||
 			EVP_CIPHER_CTX_set_key_length(crypt->dec, crypt->key_size) != 1) {
 		DEBUG("key_size: %u", crypt->key_size);
 		debug_openssl_error();
 		goto failed;
-	}
+	}*/
 
 	return crypt;
 
@@ -99,20 +101,33 @@ int crypto_encrypt(const struct crypto_st *crypt, const uint8_t *in, uint32_t is
 		return -1;
 	
 	int enc_len = 0, final_len = 0;
+	uint8_t iv[EVP_MAX_IV_LENGTH] = {0};
+
+	if (EVP_EncryptInit_ex(crypt->enc, EVP_aes_128_ecb(), NULL, crypt->key, iv) != 1)
+		goto failed;
+	
+	if (EVP_CIPHER_CTX_set_key_length(crypt->enc, crypt->key_size) != 1) {
+		DEBUG("key_size: %u", crypt->key_size);
+		goto failed;
+	}
+	
 	if (EVP_EncryptUpdate(crypt->enc, out, &enc_len, in, isize) != 1 ||
 			enc_len < 0) {
-		debug_openssl_error();
-		return -1;
+		goto failed;
 	}
 	
 	if ((uint32_t)enc_len < isize &&
 			EVP_EncryptFinal_ex(crypt->enc, out + enc_len, &final_len) != 1) {
-		debug_openssl_error();
-		return -1;
+		goto failed;
 	}
 	
 	*osize = enc_len + final_len;
 	return 0;
+
+failed:
+	debug_openssl_error();
+	EVP_CIPHER_CTX_cleanup(crypt->enc);
+	return -1;
 }
 
 /** @brief 解密
@@ -126,50 +141,76 @@ int crypto_decrypt(const struct crypto_st *crypt, uint8_t *data, uint32_t *size)
 		return -1;
 	
 	int dec_len = 0, final_len = 0;
+	uint8_t iv[EVP_MAX_IV_LENGTH] = {0};
 
+	if (EVP_DecryptInit_ex(crypt->dec, EVP_aes_128_ecb(), NULL, crypt->key, iv) != 1) {
+		goto failed;
+	}
+	
+	if (EVP_CIPHER_CTX_set_key_length(crypt->dec, crypt->key_size) != 1) {
+		DEBUG("key_size: %u", crypt->key_size);
+		goto failed;
+	}
+	
 	if (EVP_DecryptUpdate(crypt->dec, data, &dec_len, data, *size) != 1 ||
 			dec_len < 0) {
-		debug_openssl_error();
-		return -1;
+		goto failed;
 	}
 	
 	if (EVP_DecryptFinal_ex(crypt->dec, data + dec_len, &final_len) != 1) {
-		debug_openssl_error();
-		return -1;
+		goto failed;
 	}
 	
 	*size = dec_len + final_len;
 	return 0;
+
+failed:
+	EVP_CIPHER_CTX_cleanup(crypt->dec);
+	return -1;
+}
+
+static void crypto_enc_dec_call(struct crypto_st *crypt)
+{
+	char src[] = "abcdefghijklmnopqrstuvwxy";
+	char enc[1024] = {0};
+	uint32_t enc_size = sizeof(enc);
+
+	DUMP_HEX("src", src, strlen(src));
+
+	if(crypto_encrypt(crypt, (uint8_t*)src, strlen(src), (uint8_t*)enc, &enc_size) < 0) {
+		ERROR("encrypt failed: src len: %u, enc_size: %u", (uint32_t)strlen(src), enc_size);
+		return;
+	}
+
+	DUMP_HEX("enc", enc, enc_size);
+
+	if (crypto_decrypt(crypt, (uint8_t*)enc, &enc_size) < 0) {
+		ERROR("decrypt failed: enc_size: %u", enc_size);
+		return;
+	}
+
+	DUMP_HEX("dec", enc, enc_size);
+
+	if (strlen(src) != enc_size || memcmp(src, enc, strlen(src)) != 0)
+		DEBUG("crypto test failed: src len: %u, old_enc: %u", (uint32_t)strlen(src), enc_size);
+	else
+		DEBUG("crypto test success");
+	
+	DEBUG("crypto_encrypt_size: %d\n", crypto_encrypt_size(strlen(src)));
 }
 
 void crypto_example()
 {
 	char key[16] = "123456789012345";
-	char src[] = "abcdefghijklmnopqrstuvwxy";
-	char enc[1024];
-	uint32_t enc_size = sizeof(enc);
-
-	openssl_init();
 
 	DUMP_HEX("key", key, sizeof(key));
-	DUMP_HEX("src", src, strlen(src));
+	openssl_init();
 
 	struct crypto_st *crypt = crypto_create((uint8_t*)key, sizeof(key));
-	
-	crypto_encrypt(crypt, (uint8_t*)src, strlen(src), (uint8_t*)enc, &enc_size);
-	DUMP_HEX("enc", enc, enc_size);
-
-	crypto_decrypt(crypt, (uint8_t*)enc, &enc_size);
-	DUMP_HEX("dec", enc, enc_size);
-
-	INFO("repeat ");	/* TODO */
-	crypto_decrypt(crypt, (uint8_t*)enc, &enc_size);
-
-	if (strlen(src) != enc_size || memcmp(src, enc, strlen(src)) != 0)
-		DEBUG("crypto test failed: src len: %u, enc_size: %u", (uint32_t)strlen(src), enc_size);
-	else
-		DEBUG("crypto test success");
-	
-	DEBUG("enc_len: %d\n", crypto_encrypt_size(strlen(src)));
+	INFO("first call");
+	crypto_enc_dec_call(crypt);
+	INFO("second call");
+	crypto_enc_dec_call(crypt);
+	crypto_destroy(crypt);
 }
 
