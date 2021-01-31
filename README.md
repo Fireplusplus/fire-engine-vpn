@@ -16,11 +16,11 @@ Configure: 可能是ASCII的
 
 ### 目录树
 root
-&nbsp;&nbsp;\\_ config: 谁动了我的配置
-&nbsp;&nbsp;\\_ utils: 不出意外只有公共接口会在这里
-&nbsp;&nbsp;\\_ vpn: 一个简单的vpn协议, 协商主逻辑
-&nbsp;&nbsp;\\_ tun: tun口, 一个假想出来的网卡
-&nbsp;&nbsp;\\_ doc: 这里可能会找到一些文档
+&nbsp;&nbsp;\\_ config: 谁动了我的配置  
+&nbsp;&nbsp;\\_ utils: 不出意外只有公共接口会在这里  
+&nbsp;&nbsp;\\_ vpn: 一个简单的vpn协议, 协商主逻辑  
+&nbsp;&nbsp;\\_ tun: tun口, 一个假想出来的网卡  
+&nbsp;&nbsp;\\_ doc: 这里可能会找到一些文档  
    
 ### 备忘录
 1.开启linux的ip代理转发功能,作为路由器角色
