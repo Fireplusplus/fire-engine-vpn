@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #define MIN(a, b)	((a) < (b) ? (a) : (b))
+#define MAX(a, b)	((a) < (b) ? (b) : (a))
 
 #define __LOG(level, fmt, args...)		do {	\
 			std::string __file(__FILE__);		\
