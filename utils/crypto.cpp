@@ -199,6 +199,25 @@ static void crypto_enc_dec_call(struct crypto_st *crypt)
 	DEBUG("crypto_encrypt_size: %d\n", crypto_encrypt_size(strlen(src)));
 }
 
+/** @brief 生成随机数
+ * @return 0：失败 非0：随机数
+ */
+int safe_rand()
+{
+	BIGNUM *rand = BN_new();
+	if (!rand)
+		return 0;
+
+	int num;
+	if (BN_rand(rand, sizeof(num) * 8, 0, 0) != 1)
+		return 0;
+	
+	if (BN_bn2bin(rand, (unsigned char*)&num) != sizeof(num))
+		return 0;
+	
+	return num;
+}
+
 void crypto_example()
 {
 	char key[16] = "123456789012345";
@@ -212,5 +231,10 @@ void crypto_example()
 	INFO("second call");
 	crypto_enc_dec_call(crypt);
 	crypto_destroy(crypt);
+
+	INFO("rand call");
+	for (int i = 0; i < 10; i++) {
+		INFO("rand_%d: %d", i, safe_rand());
+	}
 }
 

@@ -3,6 +3,7 @@
 
 struct ser_cli_node {
 	int sock;
+	int seed;
 	struct event *ev;
 	struct dh_group_st *dh;
 	struct crypto_st *crypt;

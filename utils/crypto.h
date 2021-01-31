@@ -37,6 +37,11 @@ int crypto_encrypt(const struct crypto_st *crypt, const uint8_t *in, uint32_t is
  */
 int crypto_decrypt(const struct crypto_st *crypt, uint8_t *data, uint32_t *size);
 
+/** @brief 生成随机数
+ * @return 0：失败 非0：随机数
+ */
+int safe_rand();
+
 void crypto_example();
 
 #endif

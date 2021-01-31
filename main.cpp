@@ -25,8 +25,7 @@ void usage()
 
 	int i = 0;
 	while (help[i]) {
-		printf("\n");
-		printf(help[i++]);
+		printf("\n%s", help[i++]);
 	};
 
 	printf("\n");

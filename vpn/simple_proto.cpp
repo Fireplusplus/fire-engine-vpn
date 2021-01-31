@@ -19,24 +19,32 @@
 struct cmd_key_st {
 	uint8_t version;
 	uint16_t klen;
+	uint32_t reserve;
 	uint8_t pubkey[0];
 } VPN_PACKED;
 
 struct cmd_auth_c_st {
 	char user[MAX_USER_LEN];
 	char pwd[MAX_USER_LEN];
+	uint32_t reserve;
 } VPN_PACKED;
 
 struct cmd_auth_r_st {
 	uint16_t code;
+	int32_t seed;		/* 随机种子,客户端建立数据通道时发给服务端校验 */
 	uint32_t reserve;
 } VPN_PACKED;
 
 /*
-struct cmd_config_st {
-
+struct subnet_st {
+	uint32_t ip;
+	uint32_t mask;
 } VPN_PACKED;
 
+struct cmd_config_st {
+	uint16_t cnt;
+	uint8_t data[0];
+} VPN_PACKED;
 */
 
 struct cmd_head_st {
@@ -268,6 +276,9 @@ static int cmd_auth_r_send(ser_cli_node *sc, uint16_t code)
 {
 	struct cmd_auth_r_st ar;
 	ar.code = code;
+	ar.seed = safe_rand();
+
+	sc->seed = ar.seed;
 	
 	DEBUG("cmd auth_r send: code: %u", ar.code);
 	return cmd_send(sc, CMD_AUTH_R, (uint8_t*)&ar, sizeof(struct cmd_auth_r_st));
@@ -301,6 +312,8 @@ static int on_cmd_auth_r(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
 		WARN("recv server response: auth failed: %u", ar->code);
 		return -1;
 	}
+
+	sc->seed = ar->seed;
 
 	INFO("auth passed");
 	return 0;
