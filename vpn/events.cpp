@@ -18,6 +18,7 @@
 #include "dh_group.h"
 #include "local_config.h"
 #include "simple_proto.h"
+#include "ipc.h"
 
 using namespace std;
 
@@ -49,200 +50,97 @@ void sc_info_destroy(ser_cli_node *sc)
 
 	crypto_destroy(sc->crypt);
 	dh_destroy(sc->dh);
+	ipc_destroy(sc->ipc);
 
 	free(sc);
 }
 
-void sc_info_add(int fd, ser_cli_node *sc)
+void sc_info_add(int ipc, ser_cli_node *sc)
 {
 	assert(sc);
 	
-	unordered_map<int, ser_cli_node*>::iterator it = s_sc_info_list.find(fd);
+	unordered_map<int, ser_cli_node*>::iterator it = s_sc_info_list.find(ipc);
 	if (it != s_sc_info_list.end()) {
 		sc_info_destroy(it->second);
 	}
 	
-	s_sc_info_list[fd] = sc;
+	s_sc_info_list[ipc] = sc;
 }
 
-void sc_info_del(int fd)
+void sc_info_del(int ipc)
 {
-	unordered_map<int, ser_cli_node*>::iterator it = s_sc_info_list.find(fd);
+	unordered_map<int, ser_cli_node*>::iterator it = s_sc_info_list.find(ipc);
 	if (it != s_sc_info_list.end()) {
 		sc_info_destroy(it->second);
 		s_sc_info_list.erase(it);
 	}
 }
 
-int set_unblock(int fd)
-{
-	int flags;
-	if ((flags = fcntl(fd, F_GETFL, NULL)) < 0) {
-		DEBUG("fcntl failed: %s", strerror(errno));
-		return -1;
-	}
-	
-	if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
-		DEBUG("fcntl failed: %s", strerror(errno));
-		return -1;
-	}
-	
-	return 0;
-}
-
 static int listener_create()
 {
-	int sock = socket(AF_INET, SOCK_STREAM, 0);
-	if (sock < 0) {
-		ERROR("socket error: %s", strerror(errno));
+	int ipc = ipc_listener_create(AF_INET, get_server_ip(), get_server_port());
+	if (ipc < 0) {
 		return -1;
 	}
-	
-	struct sockaddr_in local;
-	local.sin_family = AF_INET;
-	local.sin_port = htons(get_server_port());
-	inet_pton(AF_INET, get_server_ip(), &local.sin_addr.s_addr);
-	
-	int flag = 1, len = sizeof(int);
-	if( setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &flag, len) == -1) {
-		DEBUG("reuseaddr failed: %s", strerror(errno));
-	}
-	
-	short port = get_server_port();
-	int i;
-	for (i = 0; i < 3; i++) {
-		if (bind(sock, (struct sockaddr*)&local, sizeof(local)) < 0) {
-			DEBUG("bind %d failed: %s, try next", port, strerror(errno));
-			local.sin_port = htons(++port);
-		} else {
-			break;
-		}
-	}
-	if (i >= 3) {
-		ERROR("bind error: %s", strerror(errno));
-		goto failed;
-	}
-	
-	if (listen(sock, 10) < 0) {
-		ERROR("listen error: %s", strerror(errno));
-		goto failed;
-	}
 
-	INFO("server listen on: %s:%d", get_server_ip(), port);
-
-	(void)set_unblock(sock);
-	return sock;
-
-failed:
-	close(sock);
-	return -1;
-}
-
-static void listener_destroy(int sock)
-{
-	if (sock < 0)
-		return;
-
-	close(sock);
+	return ipc;
 }
 
 /* 读事件回调 */
-static void on_read(int fd, short what, void *arg)
+static void on_read(int ipc, short what, void *arg)
 {
     char buf[65535];
-    int len = read(fd, buf, sizeof(buf));
+	int len = ipc_recv(ipc, buf, sizeof(buf));
 	if (len < 0) {
-		WARN("read failed: %s", strerror(errno));
 		return;
 	}
 	
 	if (len == 0) {
-		INFO("peer closed");
-		sc_info_del(fd);
+		sc_info_del(ipc);
 		return;
 	}
 	
 	DEBUG("recv: len: %d, what: %d\n", len, what);
 	if (on_cmd((ser_cli_node *)arg, (uint8_t *)&buf, len) < 0) {
 		DEBUG("on cmd failed");
-		sc_info_del(fd);
+		sc_info_del(ipc);
 	}
 }
 
 /* 服务端监听回调 */
 static void on_listen(int listen, short what, void *arg)
 {
-	struct sockaddr_in peer;
-	socklen_t len = sizeof(peer);
-	int sock = accept4(listen, (struct sockaddr*)&peer, &len, SOCK_NONBLOCK | SOCK_CLOEXEC);
-	if (sock < 0) {
-		WARN("accept error: %s", strerror(errno));
+	int ipc = ipc_accept(AF_INET, listen);
+	if (ipc < 0)
 		return;
-	}
 
 	ser_cli_node *sc = sc_info_create();
 	if (!sc) {
 		WARN("create sc info failed");
-		close(sock);
+		ipc_destroy(ipc);
 		return;
 	}
 
-	sc->sock = sock;
+	sc->ipc = ipc;
 	sc->server = 1;
 	
-	sc->ev = event_new((struct event_base*)arg, sock, EV_READ | EV_PERSIST, on_read, sc);
+	sc->ev = event_new(s_ev_base, ipc, EV_READ | EV_PERSIST, on_read, sc);
 	if (!sc->ev) {
 		WARN("create event failed");
 		sc_info_destroy(sc);
-		close(sock);
+		ipc_destroy(ipc);
 		return;
 	}
 
 	event_add(sc->ev, NULL);
-	sc_info_add(sock, sc);
-	
-	INFO("accept a client: sock(%d)\n", sock);
-}
-
-static int client_create()
-{
-	int sock = socket(AF_INET, SOCK_STREAM, 0);
-	if (sock < 0) {
-		WARN("socket failed: %s", strerror(errno));
-		return -1;
-	}
-	
-	struct sockaddr_in peer;
-	peer.sin_family = AF_INET;
-	peer.sin_port = htons(get_server_port());
-	inet_pton(AF_INET, get_server_ip(), &peer.sin_addr.s_addr);
-	
-	if (connect(sock, (struct sockaddr*)&peer, sizeof(peer)) < 0) {
-		WARN("connect failed: %s", strerror(errno));
-		goto failed;
-	}
-	
-	set_unblock(sock);
-	return sock;
-
-failed:
-	close(sock);
-	return -1;
-}
-
-static void client_destroy(int sock)
-{
-	if (sock < 0)
-		return;
-
-	close(sock);
+	sc_info_add(ipc, sc);
 }
 
 /* 注册新事件 */
-int event_register(int fd, void (*on_do)(int, short, void *), void *user_data, int server)
+int event_register(int ipc, void (*on_do)(int, short, void *), void *user_data, int server)
 {
-	if (fd < 0 || !on_do) {
-		DEBUG("invalid param: fd: %d, on_do: %p", fd, on_do);
+	if (ipc < 0 || !on_do) {
+		DEBUG("invalid param: ipc: %d, on_do: %p", ipc, on_do);
 		return -1;
 	}
 
@@ -252,11 +150,10 @@ int event_register(int fd, void (*on_do)(int, short, void *), void *user_data, i
 		return -1;
 	}
 
-	sc->sock = fd;
+	sc->ipc = ipc;
 	sc->server = server;
 
-	sc->ev = event_new(s_ev_base, fd, EV_READ | EV_PERSIST, 
-						on_do, server ? (void*)s_ev_base : (void*)sc);
+	sc->ev = event_new(s_ev_base, ipc, EV_READ | EV_PERSIST, on_do, (void*)sc);
 	if (!sc->ev) {
 		DEBUG("invalid param: event create failed");
 		sc_info_destroy(sc);
@@ -264,7 +161,7 @@ int event_register(int fd, void (*on_do)(int, short, void *), void *user_data, i
 	}
 	
 	event_add(sc->ev, NULL);
-	sc_info_add(fd, sc);
+	sc_info_add(ipc, sc);
 
 	if (!server && start_connect(sc) < 0)	/* 客户端发起主动协商 */
 		return -1;
@@ -276,18 +173,18 @@ int event_register(int fd, void (*on_do)(int, short, void *), void *user_data, i
 static void server_register()
 {
 	struct event_action_st evs[] = {
-		{listener_create, listener_destroy, on_listen, "listtener"},	/* 服务端监听 */
+		{listener_create, ipc_destroy, on_listen, "listtener"},	/* 服务端监听 */
 		//{tun_init, tun_finit, on_read, "raw input"},					/* 原始输入 */
 	};
 	
 	for (int i = 0; i < (int)(sizeof(evs) / sizeof(evs[0])); i++) {
-		int fd = evs[i].create();
-		if (!fd) {
+		int ipc = evs[i].create();
+		if (!ipc) {
 			ERROR("%s create failed", evs[i].desc);
 			goto failed;
 		}
 
-		if (event_register(fd, evs[i].on_do, NULL, 1) < 0) {
+		if (event_register(ipc, evs[i].on_do, NULL, 1) < 0) {
 			ERROR("%s register failed", evs[i].desc);
 			goto failed;
 		}
@@ -298,25 +195,26 @@ static void server_register()
 	return;
 
 failed:
+	//destroy
 	exit(-1);
 }
 
 /* 创建客户端套接字并注册事件 */
 static void client_register()
 {
-	int fd = client_create();
-	if (fd < 0) {
+	int ipc = ipc_client_create(AF_INET, get_server_ip(), get_server_port());
+	if (ipc < 0) {
 		return;
 	}
 
-	if (event_register(fd, on_read, NULL, 0) < 0) {
+	if (event_register(ipc, on_read, NULL, 0) < 0) {
 		goto failed;
 	}
 
 	return;
 
 failed:
-	client_destroy(fd);
+	ipc_destroy(ipc);
 	exit(-1);
 }
 

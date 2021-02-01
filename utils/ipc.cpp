@@ -73,7 +73,7 @@ int ipc_listener_create(int domain, const char *addr, short port)
 	}
 	
 	if (listen(sock, 10) < 0) {
-		ERROR("listen error: %s", strerror(errno));
+		DEBUG("listen error: %s", strerror(errno));
 		goto failed;
 	}
 
@@ -88,25 +88,12 @@ failed:
 }
 
 /*
- * @brief 销毁监听者
- * @param[in] fd ipc_listener_create返回的描述符
- * @return 无
- */
-void ipc_listener_destroy(int fd)
-{
-	if (fd < 0)
-		return;
-
-	close(fd);
-}
-
-/*
  * @brief 接收客户端连接
  * @param[in] domain AF_UNIX: 本地通信, AF_INET: 跨主机通信
  * @param[in] fd ipc_listener_create返回的描述符
  * @return <0: 失败 >=0: 文件描述符
  */
-int ipc_listen(int domain, int fd)
+int ipc_accept(int domain, int fd)
 {
 	if ((domain != AF_UNIX && domain != AF_INET) || fd < 0)
 		return -1;
@@ -193,11 +180,11 @@ failed:
 }
 
 /*
- * @brief 销毁ipc客户端
- * @param[in] fd ipc_client_create返回的文件描述符
+ * @brief 销毁ipc资源
+ * @param[in] fd ipc_xxx_create返回的文件描述符
  * @return 无
  */
-void ipc_client_destroy(int fd)
+void ipc_destroy(int fd)
 {
 	if (fd < 0)
 		return;
@@ -227,7 +214,7 @@ void ipc_client_destroy(int fd)
  */
 int ipc_recv(int fd, void *buf, uint32_t size)
 {
-    int len = read(fd, buf, size);
+	int len = read(fd, buf, size);
 	if (len <= 0) {
 		DEBUG("read error: %s", strerror(errno));
 		return len;

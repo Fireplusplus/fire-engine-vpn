@@ -2,7 +2,7 @@
 #define __EVENT_20201213__
 
 struct ser_cli_node {
-	int sock;
+	int ipc;
 	int seed;
 	struct event *ev;
 	struct dh_group_st *dh;
@@ -18,6 +18,6 @@ void event_run();
 int event_init(int server);
 
 /* 注册新事件 */
-int event_register(int fd, void (*on_do)(int, short, void *), void *user_data);
+int event_register(int ipc, void (*on_do)(int, short, void *), void *user_data);
 
 #endif

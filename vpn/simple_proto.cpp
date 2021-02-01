@@ -8,6 +8,7 @@
 #include "crypto.h"
 #include "dh_group.h"
 #include "local_config.h"
+#include "ipc.h"
 
 #define SIMP_VERSION_1 1
 
@@ -135,20 +136,6 @@ int start_connect(ser_cli_node *sc)
 	return sc ? cmd_key_send(sc) : -1;
 }
 
-static int data_send(int sock, uint8_t *data, uint16_t len)
-{
-	while (len) {
-		int ret = write(sock, data, len);
-		if (ret < 0 || ret > len) {
-			return -1;
-		}
-
-		len -= ret;
-	}
-
-	return 0;
-}
-
 static int cmd_send(const ser_cli_node *sc, uint16_t cmd, uint8_t *buf, uint32_t len)
 {
 	int enc = (cmd >= CMD_ENC_BEGIN && cmd < CMD_END) ? 1 : 0;
@@ -178,7 +165,7 @@ static int cmd_send(const ser_cli_node *sc, uint16_t cmd, uint8_t *buf, uint32_t
 		}
 	}
 
-	if (data_send(sc->sock, (uint8_t *)hdr, sizeof(struct cmd_head_st) + dlen) < 0) {
+	if (ipc_send(sc->ipc, (uint8_t *)hdr, sizeof(struct cmd_head_st) + dlen) < 0) {
 		DEBUG("data send failed");
 		free(hdr);
 		return -1;
