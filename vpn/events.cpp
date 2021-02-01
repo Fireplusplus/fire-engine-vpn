@@ -33,6 +33,29 @@ static unordered_map<int, ser_cli_node*> s_sc_info_list;		/* 事件缓存表 */
 struct event_base *s_ev_base;
 static int s_server;
 
+struct event * event_create(int ipc, event_callback_fn fn, void *arg)
+{
+	if (ipc < 0 || !fn)
+		return NULL;
+	
+	struct event *ev = event_new(s_ev_base, ipc, EV_READ | EV_PERSIST, fn, arg);
+	if (!ev) {
+		DEBUG("create event failed");
+		return NULL;
+	}
+
+	event_add(ev, NULL);
+	return ev;
+}
+
+void event_destroy(struct event *ev)
+{
+	if (ev) {
+		event_del(ev);
+		event_free(ev);
+	}
+}
+
 ser_cli_node * sc_info_create()
 {
 	return (ser_cli_node *)alloc_die(sizeof(ser_cli_node));
@@ -43,11 +66,7 @@ void sc_info_destroy(ser_cli_node *sc)
 	if (!sc)
 		return;
 	
-	if (sc->ev) {
-		event_del(sc->ev);
-		event_free(sc->ev);
-	}
-
+	event_destroy(sc->ev);
 	crypto_destroy(sc->crypt);
 	dh_destroy(sc->dh);
 	ipc_destroy(sc->ipc);
@@ -124,15 +143,12 @@ static void on_listen(int listen, short what, void *arg)
 	sc->ipc = ipc;
 	sc->server = 1;
 	
-	sc->ev = event_new(s_ev_base, ipc, EV_READ | EV_PERSIST, on_read, sc);
+	sc->ev = event_create(ipc, on_read, sc);
 	if (!sc->ev) {
-		WARN("create event failed");
 		sc_info_destroy(sc);
-		ipc_destroy(ipc);
 		return;
 	}
 
-	event_add(sc->ev, NULL);
 	sc_info_add(ipc, sc);
 }
 
@@ -153,18 +169,18 @@ int event_register(int ipc, void (*on_do)(int, short, void *), void *user_data, 
 	sc->ipc = ipc;
 	sc->server = server;
 
-	sc->ev = event_new(s_ev_base, ipc, EV_READ | EV_PERSIST, on_do, (void*)sc);
+	sc->ev = event_create(ipc, on_do, sc);
 	if (!sc->ev) {
-		DEBUG("invalid param: event create failed");
 		sc_info_destroy(sc);
 		return -1;
 	}
 	
-	event_add(sc->ev, NULL);
 	sc_info_add(ipc, sc);
 
-	if (!server && start_connect(sc) < 0)	/* 客户端发起主动协商 */
+	if (!server && start_connect(sc) < 0) {	/* 客户端发起主动协商 */
+		sc_info_del(ipc);
 		return -1;
+	}
 	
 	return 0;
 }
