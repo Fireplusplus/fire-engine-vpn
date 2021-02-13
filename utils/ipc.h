@@ -1,6 +1,9 @@
 #ifndef __IPC_20200131__
 #define __IPC_20200131__
 
+#include <sys/types.h>
+#include <sys/socket.h>
+
 /*
  * @brief 创建ipc监听者
  * @param[in] domain AF_UNIX: 本地通信, AF_INET: 跨主机通信

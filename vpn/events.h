@@ -1,6 +1,8 @@
 #ifndef __EVENT_20201213__
 #define __EVENT_20201213__
 
+#include "ev.h"
+
 struct ser_cli_node {
 	int ipc;
 	int seed;
@@ -11,13 +13,8 @@ struct ser_cli_node {
 	uint8_t server:1;
 };
 
-/* 服务启动运行：循环事件 */
-void event_run();
 
 /* 初始化服务环境 */
 int event_init(int server);
-
-/* 注册新事件 */
-int event_register(int ipc, void (*on_do)(int, short, void *), void *user_data);
 
 #endif

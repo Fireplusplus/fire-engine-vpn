@@ -7,6 +7,8 @@
 #include "events.h"
 #include "dh_group.h"
 #include "crypto.h"
+#include "simple_proto.h"
+#include "ipc.h"
 
 
 void usage()
@@ -71,12 +73,12 @@ int main(int argc, char *argv[])
 			usage();
 			break;
 	};
-	
+
 	if (event_init(server) < 0) {
 		return -1;
 	}
 
-	(void)event_run();
+	(void)ev_run();
 	
 	INFO("event_run over !\n");
 

@@ -7,4 +7,6 @@ const char * get_server_ip();
 const char * get_branch_user();
 const char * get_branch_pwd();
 
+#define TUNNEL_ADDR	"/tmp/tunnel"
+
 #endif

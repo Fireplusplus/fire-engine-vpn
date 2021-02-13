@@ -71,7 +71,7 @@ enum {
 	CMD_KEY,
 	CMD_AUTH_C,
 	CMD_AUTH_R,
-	CMD_END
+	CMD_END = 9
 };
 
 #define CMD_ENC_BEGIN CMD_AUTH_C
@@ -82,18 +82,19 @@ struct cmd_map_st {
 	do_cmd fn;
 };
 
-static struct cmd_map_st s_do_cmd[] = {
+static struct cmd_map_st s_do_cmd[CMD_END] = {
 					{CMD_BEGIN,		NULL},
 					{CMD_KEY, 		on_cmd_key},
 					{CMD_AUTH_C, 	on_cmd_auth_c},
 					{CMD_AUTH_R, 	on_cmd_auth_r},
-					{CMD_END,		NULL}
 				};
 
 struct cmd_desc_st {
 	int cmd;
 	const char *desc;
 };
+
+static int s_tunnel_ipc = -1;
 
 static struct cmd_desc_st s_cmd_desc[] = {
 					{CMD_BEGIN,		"CMD_BEGIN"},
@@ -102,6 +103,16 @@ static struct cmd_desc_st s_cmd_desc[] = {
 					{CMD_AUTH_R, 	"CMD_AUTH_R"},
 					{CMD_END,		"CMD_END"}
 				};
+
+int tunnel_ipc_init()
+{
+	do {
+		s_tunnel_ipc = ipc_client_create(AF_UNIX, TUNNEL_ADDR, 0);
+		sleep(3);
+	} while (s_tunnel_ipc < 0);
+	
+	return 0;
+}
 
 int on_cmd(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
 {
@@ -127,6 +138,11 @@ int on_cmd(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
 		}
 	}
 	
+	if (!s_do_cmd[hdr->cmd].fn) {
+		INFO("unknown cmd: %u", hdr->cmd);
+		return -1;
+	}
+
 	return s_do_cmd[hdr->cmd].fn(sc, hdr->data, size);
 }
 
