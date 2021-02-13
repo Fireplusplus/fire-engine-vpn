@@ -53,4 +53,12 @@ int ipc_recv(int fd, void *buf, uint32_t size);
  */
 int ipc_send(int fd, void *buf, uint32_t size);
 
+/*
+ * @brief 获取对端地址
+ * @param[out] ip ip
+ * @param[out] port port
+ * @return <0: 失败 >0: 成功
+ */
+int get_peer_addr(int ipc, uint32_t *ip, short *port);
+
 #endif

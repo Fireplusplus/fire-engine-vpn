@@ -36,6 +36,14 @@ struct cmd_auth_r_st {
 	uint32_t reserve;
 } VPN_PACKED;
 
+struct cmd_tunnel_st {
+	uint32_t dst_ip;
+	short dst_port;
+	uint32_t klen;
+	uint32_t reserve;
+	uint8_t pubkey[0];
+};
+
 /*
 struct subnet_st {
 	uint32_t ip;
@@ -71,11 +79,13 @@ enum {
 	CMD_KEY,
 	CMD_AUTH_C,
 	CMD_AUTH_R,
-	CMD_END = 9
+
+	CMD_CONN = 9,
+	CMD_END = 19
 };
 
 #define CMD_ENC_BEGIN CMD_AUTH_C
-#define CMD_ENC_END CMD_END
+#define CMD_ENC_END CMD_AUTH_R
 
 struct cmd_map_st {
 	int cmd;
@@ -103,16 +113,6 @@ static struct cmd_desc_st s_cmd_desc[] = {
 					{CMD_AUTH_R, 	"CMD_AUTH_R"},
 					{CMD_END,		"CMD_END"}
 				};
-
-int tunnel_ipc_init()
-{
-	do {
-		s_tunnel_ipc = ipc_client_create(AF_UNIX, TUNNEL_ADDR, 0);
-		sleep(3);
-	} while (s_tunnel_ipc < 0);
-	
-	return 0;
-}
 
 int on_cmd(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
 {
@@ -154,7 +154,7 @@ int start_connect(ser_cli_node *sc)
 
 static int cmd_send(const ser_cli_node *sc, uint16_t cmd, uint8_t *buf, uint32_t len)
 {
-	int enc = (cmd >= CMD_ENC_BEGIN && cmd < CMD_END) ? 1 : 0;
+	int enc = (cmd >= CMD_ENC_BEGIN && cmd <= CMD_END) ? 1 : 0;
 	uint32_t dlen = enc ? crypto_encrypt_size(len) : len;
 	struct cmd_head_st *hdr;
 
@@ -321,3 +321,38 @@ static int on_cmd_auth_r(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
 	INFO("auth passed");
 	return 0;
 }
+
+int conn_notify(ser_cli_node *sc)
+{
+	uint8_t buf[BUF_SIZE];
+	struct cmd_tunnel_st *tn = (struct cmd_tunnel_st *)buf;
+
+	if (get_peer_addr(sc->ipc, &tn->dst_ip, &tn->dst_port) < 0) {
+		return -1;
+	}
+
+	int ret = crypto_key(sc->crypt, (uint8_t*)&tn->pubkey, sizeof(buf) - sizeof(struct cmd_tunnel_st));
+	if (ret < 0) {
+		return -1;
+	}
+
+	tn->klen = ret;
+
+	if (ipc_send(s_tunnel_ipc, (uint8_t *)buf, sizeof(struct cmd_head_st) + ret) < 0) {
+		WARN("notify conn failed !");
+		return -1;
+	}
+
+	return 0;
+}
+
+int proto_init()
+{
+	do {
+		s_tunnel_ipc = ipc_client_create(AF_UNIX, TUNNEL_ADDR, 0);
+		sleep(3);
+	} while (s_tunnel_ipc < 0);
+	
+	return 0;
+}
+

@@ -20,6 +20,14 @@ void crypto_destroy(struct crypto_st *crypt);
  */
 int crypto_encrypt_size(uint32_t len);
 
+/** @brief 获取密钥
+ * @param[in] crypt 加密器
+ * @param[out] buf 输出缓冲
+ * @param[in] size 输出缓冲长度 
+ * @return 成功: 密钥成都, 失败: <0
+ */
+int crypto_key(const struct crypto_st *crypt, uint8_t *buf, uint32_t size);
+
 /** @brief 加密
  * @param[in] in 待加密数据
  * @param[in] isize 待加密数据长度

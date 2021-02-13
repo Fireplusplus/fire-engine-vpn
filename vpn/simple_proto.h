@@ -9,7 +9,6 @@ int on_cmd(ser_cli_node *sc, uint8_t *data, uint16_t dlen);
 /* 客户端发起连接 */
 int start_connect(ser_cli_node *sc);
 
-/* 连接发送通道初始化 */
-int tunnel_ipc_init();
+int proto_init();
 
 #endif

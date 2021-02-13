@@ -4,6 +4,7 @@
 #include <unistd.h>
 
 #include "log.h"
+#include "ev.h"
 #include "events.h"
 #include "dh_group.h"
 #include "crypto.h"
@@ -73,6 +74,10 @@ int main(int argc, char *argv[])
 			usage();
 			break;
 	};
+
+	if (proto_init() < 0) {
+		return -1;
+	}
 
 	if (event_init(server) < 0) {
 		return -1;

@@ -239,3 +239,25 @@ int ipc_send(int fd, void *buf, uint32_t size)
 
 	return ret;
 }
+
+/*
+ * @brief 获取对端地址
+ * @param[out] ip ip
+ * @param[out] port port
+ * @return <0: 失败 >0: 成功
+ */
+int get_peer_addr(int ipc, uint32_t *ip, short *port)
+{
+	struct sockaddr_in peer;
+	socklen_t len = sizeof(peer);
+
+	if (getpeername(ipc, (struct sockaddr *)&peer, &len) < 0) {
+		DEBUG("getpeername error: %s", strerror(errno));
+		return -1;
+	}
+	
+	*ip = peer.sin_addr.s_addr;
+	*port = peer.sin_port;
+	
+	return 0;
+}
