@@ -23,15 +23,15 @@ static unordered_map<int, struct event *> s_ev_list;		/* 事件缓存表 */
 struct event_base *s_ev_base;
 
 
-int ev_register(int ipc, event_callback_fn fn, void *arg)
+int ev_register(int fd, event_callback_fn fn, void *arg)
 {
-	if (ipc < 0 || !fn)
+	if (fd < 0 || !fn)
 		return -1;
 	
-	if (s_ev_list.find(ipc) != s_ev_list.end())
+	if (s_ev_list.find(fd) != s_ev_list.end())
 		return 0;
 
-	struct event *ev = event_new(s_ev_base, ipc, EV_READ | EV_PERSIST, fn, arg);
+	struct event *ev = event_new(s_ev_base, fd, EV_READ | EV_PERSIST, fn, arg);
 	if (!ev) {
 		DEBUG("create event failed");
 		return -1;
@@ -39,16 +39,16 @@ int ev_register(int ipc, event_callback_fn fn, void *arg)
 
 	event_add(ev, NULL);
 
-	s_ev_list[ipc] = ev;
+	s_ev_list[fd] = ev;
 	return 0;
 }
 
-void ev_unregister(int ipc)
+void ev_unregister(int fd)
 {
-	if (ipc < 0)
+	if (fd < 0)
 		return;
 	
-	unordered_map<int, struct event *>::iterator it = s_ev_list.find(ipc);
+	unordered_map<int, struct event *>::iterator it = s_ev_list.find(fd);
 	if (it == s_ev_list.end()) {
 		DEBUG("not find event, destroy failed !");
 		return;

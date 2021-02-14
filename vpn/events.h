@@ -1,8 +1,10 @@
 #ifndef __EVENT_20201213__
 #define __EVENT_20201213__
 
+#include "ipc.h"
+
 struct ser_cli_node {
-	int ipc;
+	ipc_st *ipc;
 	int seed;
 	struct event *ev;
 	struct dh_group_st *dh;

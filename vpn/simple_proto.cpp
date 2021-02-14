@@ -73,7 +73,7 @@ static int cmd_auth_c_send(ser_cli_node *sc);
 static int on_cmd_key(ser_cli_node *sc, uint8_t *data, uint16_t dlen);
 static int on_cmd_auth_c(ser_cli_node *sc, uint8_t *data, uint16_t dlen);
 static int on_cmd_auth_r(ser_cli_node *sc, uint8_t *data, uint16_t dlen);
-static int conn_notify(ser_cli_node *sc);
+//static int conn_notify(ser_cli_node *sc);
 
 enum {
 	CMD_BEGIN,
@@ -105,7 +105,7 @@ struct cmd_desc_st {
 	const char *desc;
 };
 
-static int s_tunnel_ipc = -1;
+static ipc_st *s_tunnel_ipc;
 
 static struct cmd_desc_st s_cmd_desc[] = {
 					{CMD_BEGIN,		"CMD_BEGIN"},
@@ -131,7 +131,7 @@ int on_cmd(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
 
 	uint32_t size = hdr->data_len;
 
-	if (hdr->cmd >= CMD_ENC_BEGIN && hdr->cmd < CMD_ENC_END) {
+	if (hdr->cmd >= CMD_ENC_BEGIN && hdr->cmd <= CMD_ENC_END) {
 		if (crypto_decrypt(sc->crypt, hdr->data, &size) < 0 ||
 				size != hdr->old_len) {
 			DEBUG("decrypt failed: size: %u, old_len: %u", size, hdr->old_len);
@@ -301,9 +301,9 @@ static int on_cmd_auth_c(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
 	//TODO:check user/pwd
 	INFO("client auth passed: %s", ac->user);
 
-	if (conn_notify(sc) < 0) {
+	/*if (conn_notify(sc) < 0) {
 		return -1;
-	}
+	}*/
 
 	return cmd_auth_r_send(sc, 0);
 }
@@ -325,16 +325,17 @@ static int on_cmd_auth_r(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
 
 	INFO("auth passed");
 
-	return conn_notify(sc);
+	//conn_notify(sc);
+	return 0;
 }
-
+#if 0
 /* 通知新连接给tunnel_manage */
 static int conn_notify(ser_cli_node *sc)
 {
 	uint8_t buf[BUF_SIZE];
 	struct cmd_tunnel_st *tn = (struct cmd_tunnel_st *)buf;
 
-	if (get_peer_addr(sc->ipc, &tn->dst_ip, &tn->dst_port) < 0) {
+	if (ipc_peer_addr(sc->ipc, &tn->dst_ip, &tn->dst_port) < 0) {
 		return -1;
 	}
 
@@ -352,13 +353,14 @@ static int conn_notify(ser_cli_node *sc)
 
 	return 0;
 }
+#endif
 
 int proto_init()
 {
 	do {
 		s_tunnel_ipc = ipc_client_create(AF_UNIX, TUNNEL_ADDR, 0);
 		sleep(3);
-	} while (s_tunnel_ipc < 0);
+	} while (!s_tunnel_ipc);
 	
 	return 0;
 }

@@ -23,8 +23,8 @@
 using namespace std;
 
 struct event_action_st {
-	int (*create)();
-	void (*destroy)(int);
+	ipc_st * (*create)();
+	void (*destroy)(ipc_st *);
 	void (*on_do)(int, short, void *);
 	const char *desc;
 };
@@ -32,27 +32,27 @@ struct event_action_st {
 static unordered_map<int, ser_cli_node*> s_sc_info_list;		/* 事件缓存表 */
 static int s_server;
 
-static void sc_info_add(int ipc, ser_cli_node *sc)
+static void sc_info_add(ipc_st *ipc, ser_cli_node *sc)
 {
-	assert(sc);
+	assert(ipc && sc);
 	
-	unordered_map<int, ser_cli_node*>::iterator it = s_sc_info_list.find(ipc);
+	unordered_map<int, ser_cli_node*>::iterator it = s_sc_info_list.find(ipc_fd(ipc));
 	if (it != s_sc_info_list.end()) {
 		return;
 	}
 	
-	s_sc_info_list[ipc] = sc;
+	s_sc_info_list[ipc_fd(ipc)] = sc;
 }
 
-static void sc_info_del(int ipc)
+static void sc_info_del(ipc_st *ipc)
 {
-	unordered_map<int, ser_cli_node*>::iterator it = s_sc_info_list.find(ipc);
+	unordered_map<int, ser_cli_node*>::iterator it = s_sc_info_list.find(ipc_fd(ipc));
 	if (it != s_sc_info_list.end()) {
 		s_sc_info_list.erase(it);
 	}
 }
 
-static ser_cli_node * sc_info_create(int ipc, int server)
+static ser_cli_node * sc_info_create(ipc_st *ipc, int server)
 {
 	ser_cli_node *sc = (ser_cli_node *)alloc_die(sizeof(ser_cli_node));
 	
@@ -69,7 +69,7 @@ static void sc_info_destroy(ser_cli_node *sc)
 		return;
 	
 	sc_info_del(sc->ipc);
-	ev_unregister(sc->ipc);
+	ev_unregister(ipc_fd(sc->ipc));
 	crypto_destroy(sc->crypt);
 	dh_destroy(sc->dh);
 	ipc_destroy(sc->ipc);
@@ -77,29 +77,31 @@ static void sc_info_destroy(ser_cli_node *sc)
 	free(sc);
 }
 
-static int client_create()
+static ipc_st * client_create()
 {
-	int ipc = ipc_client_create(AF_INET, get_server_ip(), get_server_port());
-	if (ipc < 0) {
-		return -1;
-	}
-
-	return ipc;
+	return ipc_client_create(AF_INET, get_server_ip(), get_server_port());
 }
 
-static int listener_create()
+static ipc_st * listener_create()
 {
-	int ipc = ipc_listener_create(AF_INET, get_server_ip(), get_server_port());
-	if (ipc < 0) {
-		return -1;
-	}
+	return ipc_listener_create(AF_INET, get_server_ip(), get_server_port());
+}
 
-	return ipc;
+static ipc_st * sc_info_ipc(int fd)
+{
+	unordered_map<int, ser_cli_node*>::iterator it = s_sc_info_list.find(fd);
+	if (it == s_sc_info_list.end())
+		return NULL;
+	
+	assert(it->second->ipc);
+	return it->second->ipc;
 }
 
 /* 读事件回调 */
-static void on_read(int ipc, short what, void *arg)
+static void on_read(int fd, short what, void *arg)
 {
+	ipc_st *ipc = sc_info_ipc(fd);
+	
     char buf[65535];
 	int len = ipc_recv(ipc, buf, sizeof(buf));
 	if (len < 0) {
@@ -121,8 +123,8 @@ static void on_read(int ipc, short what, void *arg)
 /* 服务端监听回调 */
 static void on_listen(int listen, short what, void *arg)
 {
-	int ipc = ipc_accept(AF_INET, listen);
-	if (ipc < 0)
+	ipc_st *ipc = ipc_accept(sc_info_ipc(listen));
+	if (!ipc)
 		return;
 
 	ser_cli_node *sc = sc_info_create(ipc, 1);
@@ -132,7 +134,7 @@ static void on_listen(int listen, short what, void *arg)
 		return;
 	}
 	
-	if (ev_register(ipc, on_read, sc) < 0) {
+	if (ev_register(ipc_fd(ipc), on_read, sc) < 0) {
 		sc_info_destroy(sc);
 		return;
 	}
@@ -151,14 +153,14 @@ static void event_register()
 	
 	struct event_action_st *pevs = s_server ? &ser_evs : &cli_evs;
 	
-	int ipc = pevs->create();
+	ipc_st *ipc = pevs->create();
 	if (!ipc) {
 		ERROR("%s create failed", pevs->desc);
 		goto failed;
 	}
 
-	sc = s_server ? NULL : sc_info_create(ipc, 0);
-	if (ev_register(ipc, pevs->on_do, sc) < 0) {
+	sc = sc_info_create(ipc, s_server);
+	if (ev_register(ipc_fd(ipc), pevs->on_do, sc) < 0) {
 		ERROR("%s register failed", pevs->desc);
 		goto failed;
 	}
