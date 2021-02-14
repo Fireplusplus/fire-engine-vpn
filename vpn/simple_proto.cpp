@@ -73,6 +73,7 @@ static int cmd_auth_c_send(ser_cli_node *sc);
 static int on_cmd_key(ser_cli_node *sc, uint8_t *data, uint16_t dlen);
 static int on_cmd_auth_c(ser_cli_node *sc, uint8_t *data, uint16_t dlen);
 static int on_cmd_auth_r(ser_cli_node *sc, uint8_t *data, uint16_t dlen);
+static int conn_notify(ser_cli_node *sc);
 
 enum {
 	CMD_BEGIN,
@@ -300,6 +301,10 @@ static int on_cmd_auth_c(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
 	//TODO:check user/pwd
 	INFO("client auth passed: %s", ac->user);
 
+	if (conn_notify(sc) < 0) {
+		return -1;
+	}
+
 	return cmd_auth_r_send(sc, 0);
 }
 
@@ -319,10 +324,12 @@ static int on_cmd_auth_r(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
 	sc->seed = ar->seed;
 
 	INFO("auth passed");
-	return 0;
+
+	return conn_notify(sc);
 }
 
-int conn_notify(ser_cli_node *sc)
+/* 通知新连接给tunnel_manage */
+static int conn_notify(ser_cli_node *sc)
 {
 	uint8_t buf[BUF_SIZE];
 	struct cmd_tunnel_st *tn = (struct cmd_tunnel_st *)buf;
@@ -338,7 +345,7 @@ int conn_notify(ser_cli_node *sc)
 
 	tn->klen = ret;
 
-	if (ipc_send(s_tunnel_ipc, (uint8_t *)buf, sizeof(struct cmd_head_st) + ret) < 0) {
+	if (ipc_send(s_tunnel_ipc, (uint8_t *)buf, sizeof(struct cmd_head_st) + tn->klen) < 0) {
 		WARN("notify conn failed !");
 		return -1;
 	}
