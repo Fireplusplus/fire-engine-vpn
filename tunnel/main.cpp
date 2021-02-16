@@ -10,18 +10,17 @@
 #include "tun.h"
 #include "proto.h"
 #include "local_config.h"
+#include "tunnel.h"
 
 /*
-                    t1
+                    thread1
                   /
-tunnel —— ring_buf —— t2
+tunnel —— ring_buf —— thread2
                   \
-                    t3
+                    thread3
 */
 
-struct tunnel_manage_st s_tunnel_manage;
 
-//直接将tcp描述符发过来，加入event
 
 void usage()
 {
@@ -45,8 +44,6 @@ void usage()
 
 static int tunnel_init()
 {
-	struct sockaddr_in local;
-
 	ipc_st *listen = ipc_listener_create(AF_UNIX, TUNNEL_ADDR, 0);
 	if (!listen)
 		return -1;
@@ -57,7 +54,6 @@ static int tunnel_init()
 	} while (!s_tunnel_manage.recv);
 	
 	ipc_destroy(listen);
-
 
 	s_tunnel_manage.raw_fd = tun_init();
 	if (s_tunnel_manage.raw_fd < 0) {
@@ -71,29 +67,6 @@ failed:
 	return -1;
 }
 
-static int conn_setup(struct cmd_tunnel_st *tunnel)
-{
-	if (s_tunnel_manage.server) {
-
-	} else {
-		if (ev_register(int ipc, event_callback_fn fn, void *arg) < 0)
-	}
-}
-
-static void conn_listen()
-{
-	uint8_t buf[BUF_SIZE];
-	int size;
-	
-	size = ipc_recv(s_tunnel_manage.recv, buf, sizeof(buf));
-	if (size <= 0) {
-		return;
-	}
-
-	if (conn_setup((struct cmd_tunnel_st *)buf) < 0) {
-		return;
-	}
-}
 
 int main(int argc, char *argv[])
 {
@@ -117,14 +90,15 @@ int main(int argc, char *argv[])
 			break;
 	};
 
-	if (ev_init() < 0)
+	if (ev_init(3, tunnel_ev_rss) < 0)
 		return -1;
 
 	if (tunnel_init() < 0)
 		return -1;
 	
-	INFO("event_run over !\n");
-
+	conn_listen();
+	
+	INFO("tunnel manage run over !\n");
 	return 0;
 }
 

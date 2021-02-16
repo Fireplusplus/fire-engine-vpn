@@ -9,12 +9,10 @@
 #include "dh_group.h"
 #include "local_config.h"
 #include "ipc.h"
+#include "fd_send.h"
+#include "proto.h"
 
 #define SIMP_VERSION_1 1
-
-#define BUF_SIZE	20480
-#define MAX_USER_LEN	50
-#define VPN_PACKED __attribute__((aligned (1)))
 #define MAX_KEY_SIZE	16
 
 struct cmd_key_st {
@@ -263,6 +261,7 @@ static int cmd_auth_c_send(ser_cli_node *sc)
 	
 	snprintf((char*)&ac.user, sizeof(ac.user), "%s", get_branch_user());
 	snprintf((char*)&ac.pwd, sizeof(ac.pwd), "%s", get_branch_pwd());
+	memcpy(sc->user, ac.user, sizeof(sc->user));
 	
 	DEBUG("cmd auth_c send: user: %s", ac.user);
 	return cmd_send(sc, CMD_AUTH_C, (uint8_t*)&ac, sizeof(struct cmd_auth_c_st));
@@ -292,6 +291,7 @@ static int on_cmd_auth_c(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
 
 	//TODO:check user/pwd
 	INFO("client auth passed: %s", ac->user);
+	memcpy(sc->user, ac->user, sizeof(sc->user));
 
 	if (conn_notify(sc) < 0) {
 		return -1;
@@ -338,9 +338,11 @@ static int conn_notify(ser_cli_node *sc)
 
 	tn->klen = ret;
 	tn->seed = sc->seed;
+	memcpy(tn->user, sc->user, sizeof(tn->user));
 
-	if (ipc_send(s_tunnel_ipc, (uint8_t *)buf, sizeof(struct cmd_head_st) + tn->klen) < 0) {
-		WARN("notify conn failed !");
+	/* 发送文件描述符到tunnel_manage */
+	if (send_fd(ipc_fd(s_tunnel_ipc), ipc_fd(sc->ipc), 
+			buf, sizeof(struct cmd_head_st) + tn->klen) < 0) {
 		return -1;
 	}
 

@@ -3,7 +3,9 @@
 
 #include <stdint.h>
 
+
 #define BUF_SIZE	20480
+#define MAX_USER_LEN	50
 #define VPN_PACKED __attribute__((aligned (1)))
 
 struct cmd_tunnel_st {
@@ -11,6 +13,7 @@ struct cmd_tunnel_st {
 	short dst_port;
 	int32_t seed;
 	uint32_t klen;
+	char user[MAX_USER_LEN];
 	uint32_t reserve;
 	uint8_t pubkey[0];
 };

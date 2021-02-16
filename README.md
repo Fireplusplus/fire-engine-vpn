@@ -15,7 +15,7 @@ Configure: 可能是ASCII的
 ```
 
 ### 目录树
-root
+root  
 &nbsp;&nbsp;\\_ config: 谁动了我的配置  
 &nbsp;&nbsp;\\_ utils: 不出意外只有公共接口会在这里  
 &nbsp;&nbsp;\\_ vpn: 一个简单的vpn协议, 协商主逻辑  
