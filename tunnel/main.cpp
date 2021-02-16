@@ -74,7 +74,7 @@ int main(int argc, char *argv[])
 		usage();
 	
 	int server = 0;
-	int opt = getopt(argc, argv, "sct:");
+	int opt = getopt(argc, argv, "sc");
 	switch (opt) {
 		case 's':
 			server = 1;
