@@ -76,6 +76,7 @@ struct ipc_st * ipc_listener_create(int domain, const char *addr, short port)
 	if (!ipc)
 		return NULL;
 	
+	ipc->domain = domain;
 	ipc->fd = socket(domain, SOCK_STREAM, 0);
 	if (ipc->fd < 0) {
 		DEBUG("socket error: %s", strerror(errno));
@@ -137,6 +138,7 @@ struct ipc_st * ipc_accept(struct ipc_st *ipc)
 	if (!newipc)
 		return NULL;
 	
+	newipc->domain = ipc->domain;
 	if (ipc->domain == AF_UNIX) {
 		newipc->addr_size = sizeof(struct sockaddr_un);
 		newipc->fd = accept4(ipc->fd, NULL, NULL, SOCK_NONBLOCK | SOCK_CLOEXEC);

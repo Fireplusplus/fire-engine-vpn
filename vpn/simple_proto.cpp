@@ -36,14 +36,6 @@ struct cmd_auth_r_st {
 	uint32_t reserve;
 } VPN_PACKED;
 
-struct cmd_tunnel_st {
-	uint32_t dst_ip;
-	short dst_port;
-	uint32_t klen;
-	uint32_t reserve;
-	uint8_t pubkey[0];
-};
-
 /*
 struct subnet_st {
 	uint32_t ip;
@@ -301,9 +293,9 @@ static int on_cmd_auth_c(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
 	//TODO:check user/pwd
 	INFO("client auth passed: %s", ac->user);
 
-	/*if (conn_notify(sc) < 0) {
+	if (conn_notify(sc) < 0) {
 		return -1;
-	}*/
+	}
 
 	return cmd_auth_r_send(sc, 0);
 }
@@ -325,10 +317,10 @@ static int on_cmd_auth_r(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
 
 	INFO("auth passed");
 
-	//conn_notify(sc);
+	conn_notify(sc);
 	return 0;
 }
-#if 0
+
 /* 通知新连接给tunnel_manage */
 static int conn_notify(ser_cli_node *sc)
 {
@@ -345,6 +337,7 @@ static int conn_notify(ser_cli_node *sc)
 	}
 
 	tn->klen = ret;
+	tn->seed = sc->seed;
 
 	if (ipc_send(s_tunnel_ipc, (uint8_t *)buf, sizeof(struct cmd_head_st) + tn->klen) < 0) {
 		WARN("notify conn failed !");
@@ -353,7 +346,6 @@ static int conn_notify(ser_cli_node *sc)
 
 	return 0;
 }
-#endif
 
 int proto_init()
 {

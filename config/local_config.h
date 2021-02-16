@@ -8,5 +8,6 @@ const char * get_branch_user();
 const char * get_branch_pwd();
 
 #define TUNNEL_ADDR	"/tmp/tunnel"
+#define TUNNEL_PORT 7777
 
 #endif
