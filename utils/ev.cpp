@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <unistd.h>
 
 #include <iostream>
 #include <unordered_map>
@@ -105,10 +106,14 @@ void * do_thread(void *arg)
 {
 	pthread_detach(pthread_self());
 
-	int id = *(int*)arg;
-	struct event_base* eb = s_ev_base[id];
+	int id = (int)(uint64_t)arg;
+	DEBUG("thread: %u, id: %d", (uint32_t)pthread_self(), id);
+	struct event_base *eb = s_ev_base[id];
 
-	event_base_dispatch(eb);
+	while (1) {
+		event_base_dispatch(eb);	/* 循环分发, 没有事件的时候会退出, sleep后重新进入 */
+		sleep(3);
+	}
 
 	return NULL;
 }
@@ -147,7 +152,7 @@ int ev_init(int nzone, ev_rss fn)
 		if (nzone <= 0)		/* 不使用内部线程 */
 			break;
 		
-		if (pthread_create(&s_ev_thread[i], NULL, do_thread, &i) < 0) {
+		if (pthread_create(&s_ev_thread[i], NULL, do_thread, (void*)(uint64_t)i) < 0) {
 			ERROR("start thread failed");
 			goto failed;
 		}

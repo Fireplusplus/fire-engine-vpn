@@ -26,3 +26,12 @@ const char * get_branch_pwd()
 {
 	return "testpwd";
 }
+
+#define TUNNEL_ADDR	"/tmp/tunnel"
+#define TUNNEL_ADDR_SERVER TUNNEL_ADDR"_s"		/* 区分客户端服务器的地址, 方便一台机器调试 */
+#define TUNNEL_ADDR_CLIENT TUNNEL_ADDR"_c"
+
+const char * get_tunnel_addr(int server)
+{
+	return server ? TUNNEL_ADDR_SERVER : TUNNEL_ADDR_CLIENT;
+}

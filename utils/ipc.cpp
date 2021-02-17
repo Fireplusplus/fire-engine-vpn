@@ -149,7 +149,8 @@ struct ipc_st * ipc_accept(struct ipc_st *ipc)
 	}
 
 	if (newipc->fd < 0) {
-		DEBUG("accept4 error: %s", strerror(errno));
+		if (errno != EAGAIN)
+			DEBUG("accept4 error: %s", strerror(errno));
 		ipc_destroy(newipc);
 		return NULL;
 	}
@@ -182,7 +183,7 @@ struct ipc_st * ipc_client_create(int domain, const char *addr, short port)
 		return NULL;
 	}
 
-	if (domain == AF_UNIX) {
+	/*if (domain == AF_UNIX) {
 		struct sockaddr_un *local = &ipc->addr_un;
 		memset(local, 0, sizeof(*local));
 		local->sun_family = AF_UNIX;
@@ -191,7 +192,7 @@ struct ipc_st * ipc_client_create(int domain, const char *addr, short port)
 			DEBUG("bind %s:%d failed: %s", addr, port, strerror(errno));
 			goto failed;
 		}
-	}
+	}*/
 	
 	char buf[108];
 	int size;

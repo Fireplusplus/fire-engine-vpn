@@ -321,17 +321,20 @@ static int conn_notify(ser_cli_node *sc)
 
 	/* 发送文件描述符到tunnel_manage */
 	if (send_fd(ipc_fd(s_tunnel_ipc), ipc_fd(sc->ipc), 
-			buf, sizeof(struct cmd_head_st) + tn->klen) < 0) {
+			buf, sizeof(struct cmd_tunnel_st) + tn->klen) < 0) {
 		return -1;
 	}
 
+	INFO("notify tunnel manage to create tunnel");
 	return 0;
 }
 
-int proto_init()
+int proto_init(int server)
 {
+	const char *addr = get_tunnel_addr(server);
+
 	do {
-		s_tunnel_ipc = ipc_client_create(AF_UNIX, TUNNEL_ADDR, 0);
+		s_tunnel_ipc = ipc_client_create(AF_UNIX, addr, 0);
 		sleep(3);
 	} while (!s_tunnel_ipc);
 	

@@ -29,7 +29,7 @@ int send_fd(int fd, int fd_send, uint8_t *data, int len)
 		len = 0;
 	}
 
-	struct iovec iov[1] = {data, (size_t)len};
+	struct iovec iov[1] = {{data, (size_t)len}};
 	uint8_t buf[CONTROLLEN];
 	struct cmsghdr *cmsg = (struct cmsghdr *)buf;
 	struct msghdr msg;
@@ -51,6 +51,7 @@ int send_fd(int fd, int fd_send, uint8_t *data, int len)
 		return -1;
 	}
 
+	DEBUG("send fd: iov: data: %p, len: %d", msg.msg_iov->iov_base, (int)msg.msg_iov->iov_len);
 	return 0;
 }
 
@@ -76,8 +77,10 @@ int recv_fd(int fd, int *fd_recv, uint8_t *out, int *osize)
 	msg.msg_control = cmsg;
 	msg.msg_controllen = CONTROLLEN;
 
-	if(recvmsg(fd, &msg, 0) < 0) {
-		DEBUG("recvmsg failed: %s", strerror(errno));
+	int len = recvmsg(fd, &msg, 0);
+	if(len < 0) {
+		if (errno != EAGAIN)
+			DEBUG("recvmsg failed: %s", strerror(errno));
 		return -1;
 	}
 
@@ -87,6 +90,7 @@ int recv_fd(int fd, int *fd_recv, uint8_t *out, int *osize)
 	}
 	
 	*fd_recv = *(int*)CMSG_DATA(cmsg);
-	*osize = iov[0].iov_len;
+	*osize = len;
+	DEBUG("recv fd: data: %p, len: %d", msg.msg_iov->iov_base, len);
 	return 0;
 }

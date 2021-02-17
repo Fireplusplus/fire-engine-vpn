@@ -43,7 +43,10 @@ void usage()
 
 static int tunnel_init()
 {
-	ipc_st *listen = ipc_listener_create(AF_UNIX, TUNNEL_ADDR, 0);
+	const char *addr = get_tunnel_addr(s_tunnel_manage.server);
+	remove(addr);
+
+	ipc_st *listen = ipc_listener_create(AF_UNIX, addr, 0);
 	if (!listen)
 		return -1;
 	
@@ -54,14 +57,14 @@ static int tunnel_init()
 	
 	ipc_destroy(listen);
 
-	s_tunnel_manage.raw_fd = tun_init();
+	/*s_tunnel_manage.raw_fd = tun_init();
 	if (s_tunnel_manage.raw_fd < 0) {
 		goto failed;
-	}
+	}*/
 
 	return 0;
 
-failed:
+//failed:
 	exit(1);
 	return -1;
 }

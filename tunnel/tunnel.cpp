@@ -109,6 +109,7 @@ void conn_listen()
 		int size = sizeof(buf) / sizeof(buf[0]);
 
 		if (recv_fd(vpn_fd, &new_fd, buf, &size) < 0) {
+			sleep(3);
 			continue;
 		}
 

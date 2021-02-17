@@ -116,7 +116,6 @@ int tun_init()
 	tun_fd = tun_open(dev);
 	if (tun_fd < 0)
 	{
-		printf("create tun fail\n");
 		return -1;
 	}
 
