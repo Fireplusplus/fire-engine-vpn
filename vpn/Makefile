@@ -33,7 +33,7 @@ $(SERVER):$(SER_OBJ)
 
 .PHONY:clean
 clean:
-	@rm -rf $(SERVER) *.o
+	rm -rf $(SERVER) *.o
 
 .PHONY:debug
 debug:
