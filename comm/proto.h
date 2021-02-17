@@ -30,15 +30,6 @@ struct cmd_config_st {
 } VPN_PACKED;
 */
 
-struct cmd_head_st {
-	uint16_t cmd;
-	uint16_t cmd_check;		/* ~cmd */
-	uint16_t old_len;
-	uint16_t data_len;
-	uint32_t reserve;
-	uint8_t data[0];
-};
-
 enum {
 	CMD_BEGIN,
 	CMD_KEY,
@@ -48,8 +39,5 @@ enum {
 	CMD_CONN = 9,
 	CMD_END = 19
 };
-
-#define CMD_ENC_BEGIN CMD_AUTH_C
-#define CMD_ENC_END CMD_AUTH_R
 
 #endif

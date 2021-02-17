@@ -65,8 +65,8 @@ static void tunnel_destroy(struct tunnel_st *tl)
 static tunnel_st * tunnel_create(int fd, uint8_t *buf, int size)
 {
 	struct cmd_tunnel_st *cmd = (struct cmd_tunnel_st *)buf;
-	if (!buf || size != cmd->klen + sizeof(struct cmd_tunnel_st)) {
-		DEBUG("invalid tunnel cmd size: %d, expect: %d", size, cmd->klen + sizeof(struct cmd_tunnel_st));
+	if (!buf || size != (int)(cmd->klen + sizeof(struct cmd_tunnel_st))) {
+		DEBUG("invalid tunnel cmd size: %d, expect: %lu", size, cmd->klen + sizeof(struct cmd_tunnel_st));
 		return NULL;
 	}
 

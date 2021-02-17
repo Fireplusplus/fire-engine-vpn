@@ -29,7 +29,7 @@ int send_fd(int fd, int fd_send, uint8_t *data, int len)
 		len = 0;
 	}
 
-	struct iovec iov[1] = {data, len};
+	struct iovec iov[1] = {data, (size_t)len};
 	uint8_t buf[CONTROLLEN];
 	struct cmsghdr *cmsg = (struct cmsghdr *)buf;
 	struct msghdr msg;
@@ -65,7 +65,7 @@ int send_fd(int fd, int fd_send, uint8_t *data, int len)
 int recv_fd(int fd, int *fd_recv, uint8_t *out, int *osize)
 {
 	uint8_t buf[CONTROLLEN];
-	struct iovec iov[1] = {out, *osize};
+	struct iovec iov[1] = {out, (size_t)*osize};
 	struct cmsghdr *cmsg = (struct cmsghdr *)buf;
 	struct msghdr msg;
 	
@@ -82,7 +82,7 @@ int recv_fd(int fd, int *fd_recv, uint8_t *out, int *osize)
 	}
 
 	if(msg.msg_controllen != CONTROLLEN) {
-		DEBUG("invalid control len: %d, expect: %d", msg.msg_controllen, CONTROLLEN);
+		DEBUG("invalid control len: %d, expect: %lu", (int)msg.msg_controllen, CONTROLLEN);
 		return -1;
 	}
 	

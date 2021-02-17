@@ -10,6 +10,7 @@
 #include "crypto.h"
 #include "simple_proto.h"
 #include "ipc.h"
+#include "comm.h"
 
 
 void usage()
@@ -83,9 +84,14 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	(void)ev_run();
-	
-	INFO("event_run over !\n");
+	while (1) {
+		event_register();
+
+		(void)ev_run();
+		INFO("all event over !\n");
+
+		sleep(3);
+	}
 
 	return 0;
 }

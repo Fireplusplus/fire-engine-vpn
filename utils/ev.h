@@ -33,6 +33,6 @@ void ev_run();
  * @param[in] fn 分发函数
  * @return <0: 失败 0: 成功
  */
-int ev_init(int nzone = 0, ev_rss fn = NULL);
+int ev_init(int nzone, ev_rss fn);
 
 #endif

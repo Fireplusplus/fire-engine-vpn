@@ -237,8 +237,7 @@ int ipc_recv(struct ipc_st *ipc, void *buf, uint32_t size)
 	
 	int len = read(ipc->fd, buf, size);
 	if (len <= 0) {
-		DEBUG("read error: %s", strerror(errno));
-		return len;
+		DEBUG("read error(len: %d): %s", len, strerror(errno));
 	}
 	
 	return len;

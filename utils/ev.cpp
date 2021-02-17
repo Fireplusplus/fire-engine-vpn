@@ -68,7 +68,7 @@ int ev_register(int fd, ev_callback fn, void *arg)
 int ev_unregister(int fd)
 {
 	if (fd < 0)
-		return;
+		return -1;
 	
 	unordered_map<int, struct event *>::iterator it = s_ev_list.find(fd);
 	if (it == s_ev_list.end()) {
@@ -109,6 +109,19 @@ void * do_thread(void *arg)
 	struct event_base* eb = s_ev_base[id];
 
 	event_base_dispatch(eb);
+
+	return NULL;
+}
+
+/*
+ * @brief 设置区域分发函数
+
+ * @return无
+ */
+static void set_ev_rss(ev_rss fn)
+{
+	if (fn)
+		s_ev_rss = fn;
 }
 
 /*
@@ -117,7 +130,7 @@ void * do_thread(void *arg)
  * @param[in] fn 分发函数
  * @return <0: 失败 0: 成功
  */
-int ev_init(int nzone = 0, ev_rss fn = NULL)
+int ev_init(int nzone, ev_rss fn)
 {
 	if (nzone > ZONE_MAX)
 		nzone = ZONE_MAX;
@@ -134,17 +147,15 @@ int ev_init(int nzone = 0, ev_rss fn = NULL)
 		if (nzone <= 0)		/* 不使用内部线程 */
 			break;
 		
-		void *arg = NULL;
 		if (pthread_create(&s_ev_thread[i], NULL, do_thread, &i) < 0) {
 			ERROR("start thread failed");
 			goto failed;
 		}
 		
-		DEBUG("init base(%p), pthread(%d)", s_ev_base[i], s_ev_thread[i]);
+		DEBUG("init base(%p), pthread(%u)", s_ev_base[i], (uint32_t)s_ev_thread[i]);
 	}
 
-	if (fn)
-		s_ev_rss = fn;
+	set_ev_rss(fn);
 
 	return 0;
 

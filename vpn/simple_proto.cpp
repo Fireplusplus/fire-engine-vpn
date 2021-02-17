@@ -34,18 +34,6 @@ struct cmd_auth_r_st {
 	uint32_t reserve;
 } VPN_PACKED;
 
-/*
-struct subnet_st {
-	uint32_t ip;
-	uint32_t mask;
-} VPN_PACKED;
-
-struct cmd_config_st {
-	uint16_t cnt;
-	uint8_t data[0];
-} VPN_PACKED;
-*/
-
 struct cmd_head_st {
 	uint16_t cmd;
 	uint16_t cmd_check;		/* ~cmd */
@@ -53,7 +41,7 @@ struct cmd_head_st {
 	uint16_t data_len;
 	uint32_t reserve;
 	uint8_t data[0];
-};
+} VPN_PACKED;
 
 
 typedef int (*do_cmd)(ser_cli_node *sc, uint8_t *data, uint16_t dlen);
@@ -63,17 +51,8 @@ static int cmd_auth_c_send(ser_cli_node *sc);
 static int on_cmd_key(ser_cli_node *sc, uint8_t *data, uint16_t dlen);
 static int on_cmd_auth_c(ser_cli_node *sc, uint8_t *data, uint16_t dlen);
 static int on_cmd_auth_r(ser_cli_node *sc, uint8_t *data, uint16_t dlen);
-//static int conn_notify(ser_cli_node *sc);
+static int conn_notify(ser_cli_node *sc);
 
-enum {
-	CMD_BEGIN,
-	CMD_KEY,
-	CMD_AUTH_C,
-	CMD_AUTH_R,
-
-	CMD_CONN = 9,
-	CMD_END = 19
-};
 
 #define CMD_ENC_BEGIN CMD_AUTH_C
 #define CMD_ENC_END CMD_AUTH_R

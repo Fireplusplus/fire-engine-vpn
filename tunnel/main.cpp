@@ -5,7 +5,6 @@
 
 #include "log.h"
 #include "ev.h"
-#include "events.h"
 #include "ipc.h"
 #include "tun.h"
 #include "proto.h"
@@ -73,14 +72,13 @@ int main(int argc, char *argv[])
 	if (argc <= 1)
 		usage();
 	
-	int server = 0;
 	int opt = getopt(argc, argv, "sc");
 	switch (opt) {
 		case 's':
-			server = 1;
+			s_tunnel_manage.server = 1;
 			break;
 		case 'c':
-			server = 0;
+			s_tunnel_manage.server = 0;
 			break;
 		case 'h':
 			usage();

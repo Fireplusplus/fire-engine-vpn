@@ -2,6 +2,7 @@
 #define __EVENT_20201213__
 
 #include "ipc.h"
+#include "proto.h"
 
 struct ser_cli_node {
 	ipc_st *ipc;					/* 通信句柄 */
@@ -20,5 +21,8 @@ struct ser_cli_node {
 
 /* 初始化服务环境 */
 int event_init(int server);
+
+/* 创建套接字并注册事件 */
+void event_register();
 
 #endif

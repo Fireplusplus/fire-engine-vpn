@@ -10,7 +10,6 @@
 #include <unordered_map>
 
 #include "log.h"
-#include "tun.h"
 #include "mem.h"
 #include "events.h"
 #include "crypto.h"
@@ -115,7 +114,7 @@ static void on_read(int fd, short what, void *arg)
 	
 	DEBUG("recv: len: %d, what: %d\n", len, what);
 	if (on_cmd((ser_cli_node *)arg, (uint8_t *)&buf, len) < 0) {
-		DEBUG("on cmd failed");
+		WARN("on cmd failed, negotiation failed");
 		sc_info_destroy((ser_cli_node *)arg);
 	}
 }
@@ -141,7 +140,7 @@ static void on_listen(int listen, short what, void *arg)
 }
 
 /* 创建套接字并注册事件 */
-static void event_register()
+void event_register()
 {
 	struct ser_cli_node *sc;
 	struct event_action_st ser_evs = {
@@ -186,9 +185,8 @@ int event_init(int server)
 	else
 		s_server = 0;
 	
-	if (ev_init() < 0)
+	if (ev_init(0, NULL) < 0)
 		return -1;
 	
-	event_register();
 	return 0;
 }

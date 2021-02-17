@@ -5,12 +5,18 @@
 #include <assert.h>
 #include <stdint.h>
 
+#include "comm.h"
+
 #define MIN(a, b)	((a) < (b) ? (a) : (b))
 #define MAX(a, b)	((a) < (b) ? (b) : (a))
 
+
 #define __LOG(level, fmt, args...)		do {	\
+			struct tm *stm = get_local_time();	\
 			std::string __file(__FILE__);		\
-			printf(level "%s:%d|%s|" fmt "\n", \
+			printf("%d-%d-%d %d:%d:%d|" level "|%s:%d|%s|" fmt "\n", \
+			stm->tm_year + 1900, stm->tm_mon + 1, stm->tm_mday, \
+				stm->tm_hour, stm->tm_min, stm->tm_sec, \
 			__file.substr(__file.find_last_of("/")).c_str() + 1, \
 			__LINE__, __FUNCTION__, ## args);	\
 		} while (0)
