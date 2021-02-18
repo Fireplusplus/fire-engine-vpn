@@ -99,7 +99,8 @@ void ev_run()
 /* 内置的事件分发函数 */
 static uint32_t easy_ev_rss(int fd, void *arg)
 {
-	return fd;
+	static uint32_t rss = 0;
+	return rss++;
 }
 
 void * do_thread(void *arg)

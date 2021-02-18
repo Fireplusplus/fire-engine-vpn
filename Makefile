@@ -8,7 +8,7 @@ SUBDIR=$(VPN_PATH) $(TUNNEL_PATH)
 all:
 	for dir in $(SUBDIR); do \
 		echo "start build" $$dir; \
-		cd $$dir; make; \
+		cd $$dir; make || exit; \
 		echo "end build" $$dir; \
 	done
 

@@ -11,15 +11,6 @@
 #include "local_config.h"
 #include "tunnel.h"
 
-/*
-                    thread1
-                  /
-tunnel —— ring_buf —— thread2
-                  \
-                    thread3
-*/
-
-
 
 void usage()
 {
@@ -41,47 +32,19 @@ void usage()
 	exit(0);
 }
 
-static int tunnel_init()
-{
-	const char *addr = get_tunnel_addr(s_tunnel_manage.server);
-	remove(addr);
-
-	ipc_st *listen = ipc_listener_create(AF_UNIX, addr, 0);
-	if (!listen)
-		return -1;
-	
-	do {
-		s_tunnel_manage.recv = ipc_accept(listen);
-		sleep(3);
-	} while (!s_tunnel_manage.recv);
-	
-	ipc_destroy(listen);
-
-	/*s_tunnel_manage.raw_fd = tun_init();
-	if (s_tunnel_manage.raw_fd < 0) {
-		goto failed;
-	}*/
-
-	return 0;
-
-//failed:
-	exit(1);
-	return -1;
-}
-
-
 int main(int argc, char *argv[])
 {
 	if (argc <= 1)
 		usage();
 	
+	int server;
 	int opt = getopt(argc, argv, "sc");
 	switch (opt) {
 		case 's':
-			s_tunnel_manage.server = 1;
+			server = 1;
 			break;
 		case 'c':
-			s_tunnel_manage.server = 0;
+			server = 0;
 			break;
 		case 'h':
 			usage();
@@ -91,10 +54,10 @@ int main(int argc, char *argv[])
 			break;
 	};
 
-	if (ev_init(3, tunnel_ev_rss) < 0)
+	if (ev_init(EV_THREADS_NUM, tunnel_ev_rss) < 0)
 		return -1;
 
-	if (tunnel_init() < 0)
+	if (tunnel_init(server, EV_THREADS_NUM) < 0)
 		return -1;
 	
 	conn_listen();

@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-
+#define PKT_SIZE	65535
 #define BUF_SIZE	20480
 #define MAX_USER_LEN	50
 #define VPN_PACKED __attribute__((aligned (1)))
