@@ -2,14 +2,14 @@
 #define __LOG_20201219__
 
 #include <string>
+#include <string.h>
 #include <assert.h>
 #include <stdint.h>
 
 #include "comm.h"
 
 #define MIN(a, b)	((a) < (b) ? (a) : (b))
-#define MAX(a, b)	((a) < (b) ? (b) : (a))
-
+#define MAX(a, b)	((a) < (b) ? (b) : (a))	
 
 #define __LOG(level, fmt, args...)		do {	\
 			struct tm *stm = get_local_time();	\

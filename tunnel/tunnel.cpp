@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <assert.h>
 #include <arpa/inet.h>
+#include <semaphore.h>
 
 #include <iostream>
 #include <unordered_map>
@@ -59,8 +60,16 @@ static struct tunnel_manage_st s_tunnel_manage;					/* 全局管理信息 */
 static unordered_map<int, tunnel_st*> s_tunnel_list;			/* 隧道信息缓存表 */
 static struct ring_buf_st * s_raw_bufs[RAW_THREAD_MAX];			/* 内网数据包缓冲区 */
 static pthread_t s_raw_threads[RAW_THREAD_MAX];					/* 内网数据处理线程 */
+static sem_t s_raw_read_sems[RAW_THREAD_MAX];					/* 内网数据包缓冲可读信号量 */
+static sem_t s_raw_write_sems[RAW_THREAD_MAX];					/* 内网数据包缓冲可写信号量 */
 
-#define RING_OF_TUNNEL(tl)	(s_raw_bufs[tl->seed % RAW_THREAD_MAX])
+#define RAW_IDX_BY_TUNNEL(tl)	(tl->seed % RAW_THREAD_MAX)
+
+#define RAW_WAIT_READ_IDX(idx)	sem_wait(&s_raw_read_sems[idx])
+#define RAW_WAIT_WRITE_IDX(idx)	sem_wait(&s_raw_write_sems[idx])
+#define RAW_POST_READ_IDX(idx)	sem_post(&s_raw_read_sems[idx])
+#define RAW_POST_WRITE_IDX(idx)	sem_post(&s_raw_write_sems[idx])
+	
 
 void raw_input(int fd, short event, void *arg);
 int raw_output(struct tunnel_st *tl, uint8_t *data, uint32_t size);
@@ -177,15 +186,17 @@ void raw_input(int fd, short event, void *arg)
 		return;
 	}
 
-	struct ring_buf_st *rb = RING_OF_TUNNEL(tl);
+	int idx = RAW_IDX_BY_TUNNEL(tl);
+	struct ring_buf_st *rb = s_raw_bufs[idx];
 
-	// TODO: P操作
-
+	RAW_WAIT_WRITE_IDX(idx);
 	if (!enqueue(rb, pkt)) {
 		DEBUG("drop raw: no ring cache: proto: %02x", ntohs(pkt->pi.proto));
 		free(pkt);
+		assert(0);	/* 有信号量调控不应该会没空间 */
 		return;
 	}
+	RAW_POST_READ_IDX(idx);
 }
 
 int raw_output(struct tunnel_st *tl, uint8_t *data, uint32_t size)
@@ -207,16 +218,17 @@ int enc_output(struct tunnel_st *tl, struct raw_data_st *pkt)
 /* 消费内网数据: 封装-->加密-->发送 */
 void * raw_consumer(void *arg)
 {
-	int id = (int)(uint64_t)arg;
-	struct ring_buf_st *rb = (struct ring_buf_st *)s_raw_bufs[id];
+	int idx = (int)(uint64_t)arg;
+	struct ring_buf_st *rb = (struct ring_buf_st *)s_raw_bufs[idx];
 
 	while (1) {
-		// TODO: V操作
-
+		RAW_WAIT_READ_IDX(idx);
 		struct raw_data_st *pkt = (struct raw_data_st *)dequeue(rb);
 		if (!pkt) {
+			assert(0);	/* 有信号量调控不应该会没数据 */
 			continue;
 		}
+		RAW_POST_WRITE_IDX(idx);
 
 		struct tunnel_st *tl = select_tunnel_by_rawpkt(pkt->data);
 		if (!tl) {
@@ -298,6 +310,16 @@ int tunnel_init(int server, int nraw)
 			ERROR("start thread failed");
 			goto failed;
 		}
+
+		if (sem_init(&s_raw_read_sems[i], 0, 0) < 0) {
+			ERROR("semphare init failed: %s", strerror(errno));
+			goto failed;
+		}
+
+		if (sem_init(&s_raw_write_sems[i], 0, RING_BUF_SIZE) < 0) {
+			ERROR("semphare init failed: %s", strerror(errno));
+			goto failed;
+		}
 	}
 
 	return 0;
@@ -308,8 +330,12 @@ failed:
 
 	for (int i = 0; i < nraw; i++) {
 		ring_buf_destroy(s_raw_bufs[i]);
+
 		if (s_raw_threads[i])
 			pthread_cancel(s_raw_threads[i]);
+
+		sem_destroy(&s_raw_read_sems[i]);
+		sem_destroy(&s_raw_write_sems[i]);
 	}
 
 	return -1;
