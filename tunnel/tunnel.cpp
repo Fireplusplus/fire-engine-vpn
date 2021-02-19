@@ -53,6 +53,20 @@ struct tunnel_st {
 	uint64_t last_active;			/* 上次活跃时间 */
 };
 
+struct raw_data_st {
+	int len;
+	struct tun_pi pi;
+	uint8_t data[0];
+};
+
+struct vpn_head_st {
+	uint16_t old_len;
+	uint16_t data_len;
+	uint32_t reserve;
+	uint8_t data[0];
+} VPN_PACKED;
+
+
 #define RING_BUF_SIZE		1024
 #define RAW_THREAD_MAX		8
 
@@ -141,12 +155,6 @@ uint32_t tunnel_ev_rss(int fd, void *arg)
 	return tl->seed % (EV_THREADS_NUM - 1);
 }
 
-struct raw_data_st {
-	int len;
-	struct tun_pi pi;
-	uint8_t data[0];
-};
-
 /* 根据路由查询所属隧道 */
 struct tunnel_st * select_tunnel_by_rawpkt(uint8_t *pkt)
 {
@@ -207,12 +215,51 @@ int raw_output(struct tunnel_st *tl, uint8_t *data, uint32_t size)
 /* events回调, 在ev多线程处理 */
 void enc_input(int fd, short event, void *arg)
 {
-	return;
+	uint8_t buf[PKT_SIZE];
+	int ret = read(fd, buf, sizeof(buf));
+	if (ret <= 0) {
+		return; 
+	}
+
+	struct vpn_head_st *head = (struct vpn_head_st *)buf;
+	if (ret != (int)head->data_len + (int)sizeof(*head)) {
+		DEBUG("drop enc invalid size: ret: %d, expect: %d", ret, (int)head->data_len + (int)sizeof(*head));
+		return;
+	}
+
+	struct tunnel_st *tl = (struct tunnel_st *)arg;
+	uint32_t size = head->data_len;
+	if (crypto_decrypt(tl->crypt, head->data, &size) < 0) {
+		DEBUG("drop enc decryupt failed");
+		return;
+	}
+
+	if (head->old_len != size) {
+		DEBUG("drop enc invalid dec size: size: %u, expect: %u", size, head->old_len);
+		return;
+	}
+
+	raw_output(tl, head->data, size);
 }
 
 int enc_output(struct tunnel_st *tl, struct raw_data_st *pkt)
 {
-	return 0;
+	uint8_t buf[PKT_SIZE];
+	uint32_t size = sizeof(buf) - sizeof(struct vpn_head_st);
+
+	struct vpn_head_st *head = (struct vpn_head_st *)buf;
+	head->old_len = pkt->len - sizeof(struct raw_data_st);
+	
+	if (crypto_encrypt(tl->crypt, pkt->data, head->old_len,
+					head->data, &size) < 0) {
+		DEBUG("drop enc failed");
+		return -1;
+	}
+
+	head->data_len = size;
+	head->reserve = 0;
+	
+	return send(tl->fd, buf, size + sizeof(struct vpn_head_st), 0);
 }
 
 /* 消费内网数据: 封装-->加密-->发送 */
