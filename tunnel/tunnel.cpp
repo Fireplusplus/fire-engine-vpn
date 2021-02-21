@@ -85,10 +85,10 @@ static sem_t s_raw_write_sems[RAW_THREAD_MAX];					/* 内网数据包缓冲可�
 #define RAW_POST_WRITE_IDX(idx)	sem_post(&s_raw_write_sems[idx])
 	
 
-void raw_input(int fd, short event, void *arg);
-int raw_output(struct tunnel_st *tl, uint8_t *data, uint32_t size);
-void enc_input(int fd, short event, void *arg);
-int enc_output(struct tunnel_st *tl, struct raw_data_st *pkt);
+static void raw_input(int fd, short event, void *arg);
+static int raw_output(struct tunnel_st *tl, uint8_t *data, uint32_t size);
+static void enc_input(int fd, short event, void *arg);
+static int enc_output(struct tunnel_st *tl, struct raw_data_st *pkt);
 
 /* TODO: 添加定时清理 */
 static void tunnel_destroy(struct tunnel_st *tl)
@@ -156,7 +156,7 @@ uint32_t tunnel_ev_rss(int fd, void *arg)
 }
 
 /* 根据路由查询所属隧道 */
-struct tunnel_st * select_tunnel_by_rawpkt(uint8_t *pkt)
+static struct tunnel_st * select_tunnel_by_rawpkt(uint8_t *pkt)
 {
 	if (s_tunnel_list.empty())
 		return NULL;
@@ -166,7 +166,7 @@ struct tunnel_st * select_tunnel_by_rawpkt(uint8_t *pkt)
 }
 
 /* 处理原始输入: 识别隧道, buf分发 */
-void raw_input(int fd, short event, void *arg)
+static void raw_input(int fd, short event, void *arg)
 {
 	struct raw_data_st *pkt = (struct raw_data_st *)malloc(PKT_SIZE + sizeof(struct raw_data_st));
 	if (!pkt) {
@@ -186,6 +186,9 @@ void raw_input(int fd, short event, void *arg)
 		free(pkt);
 		return;
 	}
+
+	if (pkt->pi.proto != 0x01)
+		return;
 
 	struct tunnel_st *tl = select_tunnel_by_rawpkt(pkt->data);
 	if (!tl) {
@@ -207,13 +210,22 @@ void raw_input(int fd, short event, void *arg)
 	RAW_POST_READ_IDX(idx);
 }
 
-int raw_output(struct tunnel_st *tl, uint8_t *data, uint32_t size)
+static int raw_output(struct tunnel_st *tl, uint8_t *data, uint32_t size)
 {
-	return 0;
+	if (!data || !size)
+		return -1;
+
+	int ret = write(s_tunnel_manage.raw_fd, data, size);
+	if (ret <= 0) {
+		DEBUG("drop raw: write failed");
+		return -1;
+	}
+
+	return ret;
 }
 
 /* events回调, 在ev多线程处理 */
-void enc_input(int fd, short event, void *arg)
+static void enc_input(int fd, short event, void *arg)
 {
 	uint8_t buf[PKT_SIZE];
 	int ret = read(fd, buf, sizeof(buf));
@@ -242,7 +254,7 @@ void enc_input(int fd, short event, void *arg)
 	raw_output(tl, head->data, size);
 }
 
-int enc_output(struct tunnel_st *tl, struct raw_data_st *pkt)
+static int enc_output(struct tunnel_st *tl, struct raw_data_st *pkt)
 {
 	uint8_t buf[PKT_SIZE];
 	uint32_t size = sizeof(buf) - sizeof(struct vpn_head_st);
@@ -263,7 +275,7 @@ int enc_output(struct tunnel_st *tl, struct raw_data_st *pkt)
 }
 
 /* 消费内网数据: 封装-->加密-->发送 */
-void * raw_consumer(void *arg)
+static void * raw_consumer(void *arg)
 {
 	int idx = (int)(uint64_t)arg;
 	struct ring_buf_st *rb = (struct ring_buf_st *)s_raw_bufs[idx];
@@ -327,15 +339,11 @@ int tunnel_init(int server, int nraw)
 	
 	ipc_destroy(listen);
 
-	s_tunnel_manage.raw_fd = tun_init();
+	INFO("create tun: ip: %s", get_tun_ip());
+	s_tunnel_manage.raw_fd = tun_init(get_tun_ip());
 	if (s_tunnel_manage.raw_fd < 0) {
-#ifdef LOCAL_DEBUG
-		DEBUG("single machine debug mode, tun_init dup");
-		return 0;
-#else
 		ipc_destroy(s_tunnel_manage.recv);
 		return -1;
-#endif
 	}
 
 	if (ev_register(s_tunnel_manage.raw_fd, raw_input, NULL) < 0) {		/* 监听内网输入数据包 */

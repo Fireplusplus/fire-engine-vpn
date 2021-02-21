@@ -78,7 +78,7 @@ static void sc_info_destroy(ser_cli_node *sc)
 
 static ipc_st * client_create()
 {
-	return ipc_client_create(AF_INET, get_server_ip(), get_server_port());
+	return ipc_client_create(AF_INET, NULL, 0, get_server_ip(), get_server_port());
 }
 
 static ipc_st * listener_create()

@@ -334,7 +334,7 @@ int proto_init(int server)
 	const char *addr = get_tunnel_addr(server);
 
 	do {
-		s_tunnel_ipc = ipc_client_create(AF_UNIX, addr, 0);
+		s_tunnel_ipc = ipc_client_create(AF_UNIX, NULL, 0, addr, 0);
 		sleep(3);
 	} while (!s_tunnel_ipc);
 	

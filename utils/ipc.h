@@ -25,11 +25,15 @@ struct ipc_st * ipc_accept(struct ipc_st *ipc);
 /*
  * @brief 创建ipc客户端
  * @param[in] domain AF_UNIX: 本地通信, AF_INET: 跨主机通信
- * @param[in] addr 服务端监听地址: 路径|ip
- * @param[in] port domain==AF_INET时为服务端监听端口
+ * @param[in] saddr 客户端绑定地址: ip
+ * @param[in] sport 客户端绑定端口
+ * @param[in] daddr 服务端监听地址: 路径|ip
+ * @param[in] dport domain==AF_INET时为服务端监听端口
  * @return 失败返回NULL, 成功返回ipc_st
  */
-struct ipc_st * ipc_client_create(int domain, const char *addr, short port);
+struct ipc_st * ipc_client_create(int domain, 
+				const char *saddr, short sport, 
+				const char *daddr, short dport);
 
 /*
  * @brief 销毁ipc资源

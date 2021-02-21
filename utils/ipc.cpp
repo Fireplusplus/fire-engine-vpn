@@ -162,13 +162,17 @@ struct ipc_st * ipc_accept(struct ipc_st *ipc)
 /*
  * @brief 创建ipc客户端
  * @param[in] domain AF_UNIX: 本地通信, AF_INET: 跨主机通信
- * @param[in] addr 服务端监听地址: 路径|ip
- * @param[in] port domain==AF_INET时为服务端监听端口
+ * @param[in] saddr 客户端绑定地址: ip
+ * @param[in] sport 客户端绑定端口
+ * @param[in] daddr 服务端监听地址: 路径|ip
+ * @param[in] dport domain==AF_INET时为服务端监听端口
  * @return 失败返回NULL, 成功返回ipc_st
  */
-struct ipc_st * ipc_client_create(int domain, const char *addr, short port)
+struct ipc_st * ipc_client_create(int domain, 
+				const char *saddr, short sport, 
+				const char *daddr, short dport)
 {
-	if ((domain != AF_UNIX && domain != AF_INET) || !addr)
+	if ((domain != AF_UNIX && domain != AF_INET) || !daddr)
 		return NULL;
 	
 	struct ipc_st *ipc = ipc_create();
@@ -183,16 +187,24 @@ struct ipc_st * ipc_client_create(int domain, const char *addr, short port)
 		return NULL;
 	}
 
-	/*if (domain == AF_UNIX) {
-		struct sockaddr_un *local = &ipc->addr_un;
-		memset(local, 0, sizeof(*local));
-		local->sun_family = AF_UNIX;
-		
-		if (bind(ipc->fd, &ipc->addr, sizeof(struct sockaddr_un)) < 0) {
-			DEBUG("bind %s:%d failed: %s", addr, port, strerror(errno));
+	if (domain == AF_INET && saddr) {
+		struct sockaddr_in *local = &ipc->addr_in;
+
+		local->sin_family = AF_INET;
+		local->sin_port = htons(sport);
+		inet_pton(AF_INET, saddr, &(local->sin_addr.s_addr));
+		ipc->addr_size = sizeof(struct sockaddr_in);
+
+		int flag = 1, len = sizeof(int);
+		if( setsockopt(ipc->fd, SOL_SOCKET, SO_REUSEADDR, &flag, len) == -1) {
+			DEBUG("set reuseaddr failed: %s", strerror(errno));
+		}
+	
+		if (bind(ipc->fd, &ipc->addr, ipc->addr_size) < 0) {
+			DEBUG("bind %s:%d failed: %s", saddr, sport, strerror(errno));
 			goto failed;
 		}
-	}*/
+	}
 	
 	char buf[108];
 	int size;
@@ -201,18 +213,18 @@ struct ipc_st * ipc_client_create(int domain, const char *addr, short port)
 		size = sizeof(*peer);
 
 		peer->sun_family = AF_UNIX;
-		snprintf(peer->sun_path, sizeof(peer->sun_path), addr);
+		snprintf(peer->sun_path, sizeof(peer->sun_path), daddr);
 	} else {
 		struct sockaddr_in *peer = (struct sockaddr_in *)buf;
 		size = sizeof(*peer);
 
 		peer->sin_family = AF_INET;
-		peer->sin_port = htons(port);
-		inet_pton(AF_INET, addr, &(peer->sin_addr.s_addr));
+		peer->sin_port = htons(dport);
+		inet_pton(AF_INET, daddr, &(peer->sin_addr.s_addr));
 	}
 	
 	if (connect(ipc->fd, (struct sockaddr*)buf, size) < 0) {
-		DEBUG("connect error: %s", strerror(errno));
+		DEBUG("connect error: %s: %s:%d", strerror(errno), daddr, dport);
 		goto failed;
 	}
 	

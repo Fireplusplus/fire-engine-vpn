@@ -107,21 +107,23 @@ static void tun_close(int fd)
 	close(fd);
 }
 
-int tun_init()
+int tun_init(const char *tunip)
 {
 	int tun_fd = -1;
 	const char * dev = "tun";
 	struct sockaddr_in addr;
 
+	if (!tunip)
+		return -1;
+
 	tun_fd = tun_open(dev);
-	if (tun_fd < 0)
-	{
+	if (tun_fd < 0) {
 		return -1;
 	}
 
 	memset(&addr, 0, sizeof(struct sockaddr));
 	addr.sin_family = AF_INET;
-	inet_pton(AF_INET, "13.254.254.131", &addr.sin_addr.s_addr);
+	inet_pton(AF_INET, tunip, &addr.sin_addr.s_addr);
 	if (tun_setup(dev, &addr) < 0)
 		return -2;
 	
