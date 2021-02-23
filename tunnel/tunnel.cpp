@@ -53,10 +53,15 @@ struct tunnel_st {
 	uint64_t last_active;			/* 上次活跃时间 */
 };
 
-struct raw_data_st {
-	int len;
+
+struct tun_pkt_st {
 	struct tun_pi pi;
 	uint8_t data[0];
+};
+
+struct raw_data_st {
+	int len;
+	struct tun_pkt_st tpkt;
 };
 
 struct vpn_head_st {
@@ -174,25 +179,27 @@ static void raw_input(int fd, short event, void *arg)
 		return;
 	}
 
-	pkt->len = read(fd, pkt, PKT_SIZE + sizeof(struct raw_data_st));	/* TODO: 阻塞读? */
+	pkt->len = read(fd, &pkt->tpkt, PKT_SIZE);	/* TODO: 阻塞读? */
 	if (pkt->len <= 0) {
 		DEBUG("raw read failed: %s", strerror(errno));
 		free(pkt);
 		return; 
 	}
 
-	if (pkt->pi.flags == TUN_PKT_STRIP) {
-		DEBUG("drop raw: pkt too big: proto: %02x", ntohs(pkt->pi.proto));
+	if (pkt->tpkt.pi.flags == TUN_PKT_STRIP) {
+		DEBUG("drop raw: pkt too big: proto: %02x", ntohs(pkt->tpkt.pi.proto));
 		free(pkt);
 		return;
 	}
 
-	if (pkt->pi.proto != 0x01)
-		return;
+	//if (pkt->pi.proto != 0x01)
+		//return;
+	
+	DEBUG("recv pkt: proto: %02x %02x", pkt->tpkt.pi.proto, ntohs(pkt->tpkt.pi.proto));
 
-	struct tunnel_st *tl = select_tunnel_by_rawpkt(pkt->data);
+	struct tunnel_st *tl = select_tunnel_by_rawpkt(pkt->tpkt.data);
 	if (!tl) {
-		DEBUG("drop raw: not find tunnel: proto: %02x", ntohs(pkt->pi.proto));
+		DEBUG("drop raw: not find tunnel: proto: %02x", ntohs(pkt->tpkt.pi.proto));
 		free(pkt);
 		return;
 	}
@@ -202,7 +209,7 @@ static void raw_input(int fd, short event, void *arg)
 
 	RAW_WAIT_WRITE_IDX(idx);
 	if (!enqueue(rb, pkt)) {
-		DEBUG("drop raw: no ring cache: proto: %02x", ntohs(pkt->pi.proto));
+		DEBUG("drop raw: no ring cache: proto: %02x", ntohs(pkt->tpkt.pi.proto));
 		free(pkt);
 		assert(0);	/* 有信号量调控不应该会没空间 */
 		return;
@@ -262,7 +269,7 @@ static int enc_output(struct tunnel_st *tl, struct raw_data_st *pkt)
 	struct vpn_head_st *head = (struct vpn_head_st *)buf;
 	head->old_len = pkt->len - sizeof(struct raw_data_st);
 	
-	if (crypto_encrypt(tl->crypt, pkt->data, head->old_len,
+	if (crypto_encrypt(tl->crypt, pkt->tpkt.data, head->old_len,
 					head->data, &size) < 0) {
 		DEBUG("drop enc failed");
 		return -1;
@@ -289,15 +296,15 @@ static void * raw_consumer(void *arg)
 		}
 		RAW_POST_WRITE_IDX(idx);
 
-		struct tunnel_st *tl = select_tunnel_by_rawpkt(pkt->data);
+		struct tunnel_st *tl = select_tunnel_by_rawpkt(pkt->tpkt.data);
 		if (!tl) {
-			DEBUG("drop raw: no find tunnel: proto: %02x", ntohs(pkt->pi.proto));
+			DEBUG("drop raw: no find tunnel: proto: %02x", ntohs(pkt->tpkt.pi.proto));
 			free(pkt);
 			continue;
 		}
 
 		if (enc_output(tl, pkt) < 0) {
-			DEBUG("drop raw: output failed: proto: %02x", ntohs(pkt->pi.proto));
+			DEBUG("drop raw: output failed: proto: %02x", ntohs(pkt->tpkt.pi.proto));
 			free(pkt);
 			continue;
 		}

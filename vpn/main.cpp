@@ -11,13 +11,14 @@
 #include "simple_proto.h"
 #include "ipc.h"
 #include "comm.h"
+#include "local_config.h"
 
 
 void usage()
 {
 	const char *help[] = {
 		"  -s                    run in server mode",
-		"  -c                    run in client mode",
+		"  -c  [server-ip]       run in client mode, connect to server-ip",
 		"  -t                    test the module",
 		"      [group]             test dh group module",
 		"      [crypto]            test encrypt/decrypt module",
@@ -57,13 +58,14 @@ int main(int argc, char *argv[])
 		usage();
 	
 	int server = 0;
-	int opt = getopt(argc, argv, "sct:");
+	int opt = getopt(argc, argv, "sc:t:");
 	switch (opt) {
 		case 's':
 			server = 1;
 			break;
 		case 'c':
 			server = 0;
+			set_server_ip(optarg);
 			break;
 		case 't':
 			test(optarg);

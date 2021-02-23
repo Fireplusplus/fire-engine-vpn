@@ -7,20 +7,15 @@
 
 struct server_conf {
 	short port_listen;
-	char *ip_listen;
+	const char *ip_listen;
 };
 
-static struct server_conf s_server_conf = {6666, (char *)"172.18.39.249"};
-static struct server_conf s_client_conf = {0, (char *)"172.18.39.251"};
+static struct server_conf s_server_conf = {6666, (char *)"0.0.0.0"};
 
-short get_client_port()
+void set_server_ip(const char *ip)
 {
-	return s_client_conf.port_listen;
-}
-
-const char * get_client_ip()
-{
-	return s_client_conf.ip_listen;
+	if (ip)
+		s_server_conf.ip_listen = ip;
 }
 
 short get_server_port()
@@ -79,5 +74,8 @@ const char * get_tun_ip()
 		return NULL;
 	
 	inet_ntop(AF_INET, &buf[0], s_tun_ip, len);
+
+	s_tun_ip[strlen(s_tun_ip) - 1] = '1';
+
 	return s_tun_ip;
 }

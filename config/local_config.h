@@ -1,6 +1,8 @@
 #ifndef __LOCAL_CONFIG_20201219__
 #define __LOCAL_CONFIG_20201219__
 
+void set_server_ip(const char *ip);
+
 short get_client_port();
 const char * get_client_ip();
 short get_server_port();
