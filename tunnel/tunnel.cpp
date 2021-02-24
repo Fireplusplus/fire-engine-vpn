@@ -53,15 +53,9 @@ struct tunnel_st {
 	uint64_t last_active;			/* 上次活跃时间 */
 };
 
-
-struct tun_pkt_st {
-	struct tun_pi pi;
-	uint8_t data[0];
-};
-
 struct raw_data_st {
 	int len;
-	struct tun_pkt_st tpkt;
+	uint8_t data[0];
 };
 
 struct vpn_head_st {
@@ -81,8 +75,9 @@ static struct ring_buf_st * s_raw_bufs[RAW_THREAD_MAX];			/* 内网数据包缓�
 static pthread_t s_raw_threads[RAW_THREAD_MAX];					/* 内网数据处理线程 */
 static sem_t s_raw_read_sems[RAW_THREAD_MAX];					/* 内网数据包缓冲可读信号量 */
 static sem_t s_raw_write_sems[RAW_THREAD_MAX];					/* 内网数据包缓冲可写信号量 */
+static int s_raw_num = RAW_THREAD_MAX;							/* raw个数 */
 
-#define RAW_IDX_BY_TUNNEL(tl)	(tl->seed % RAW_THREAD_MAX)
+#define RAW_IDX_BY_TUNNEL(tl)	(((uint32_t)tl->seed) % s_raw_num)
 
 #define RAW_WAIT_READ_IDX(idx)	sem_wait(&s_raw_read_sems[idx])
 #define RAW_WAIT_WRITE_IDX(idx)	sem_wait(&s_raw_write_sems[idx])
@@ -179,37 +174,27 @@ static void raw_input(int fd, short event, void *arg)
 		return;
 	}
 
-	pkt->len = read(fd, &pkt->tpkt, PKT_SIZE);	/* TODO: 阻塞读? */
+	pkt->len = read(fd, &pkt->data, PKT_SIZE);
 	if (pkt->len <= 0) {
 		DEBUG("raw read failed: %s", strerror(errno));
 		free(pkt);
 		return; 
 	}
 
-	if (pkt->tpkt.pi.flags == TUN_PKT_STRIP) {
-		DEBUG("drop raw: pkt too big: proto: %02x", ntohs(pkt->tpkt.pi.proto));
-		free(pkt);
-		return;
-	}
-
-	//if (pkt->pi.proto != 0x01)
-		//return;
-	
-	DEBUG("recv pkt: proto: %02x %02x", pkt->tpkt.pi.proto, ntohs(pkt->tpkt.pi.proto));
-
-	struct tunnel_st *tl = select_tunnel_by_rawpkt(pkt->tpkt.data);
+	struct tunnel_st *tl = select_tunnel_by_rawpkt(pkt->data);
 	if (!tl) {
-		DEBUG("drop raw: not find tunnel: proto: %02x", ntohs(pkt->tpkt.pi.proto));
+		DEBUG("drop raw: not find tunnel");
 		free(pkt);
 		return;
 	}
 
 	int idx = RAW_IDX_BY_TUNNEL(tl);
 	struct ring_buf_st *rb = s_raw_bufs[idx];
+	DEBUG("pkt enqueue: idx: %d", idx);
 
 	RAW_WAIT_WRITE_IDX(idx);
 	if (!enqueue(rb, pkt)) {
-		DEBUG("drop raw: no ring cache: proto: %02x", ntohs(pkt->tpkt.pi.proto));
+		DEBUG("drop raw: no ring cache");
 		free(pkt);
 		assert(0);	/* 有信号量调控不应该会没空间 */
 		return;
@@ -228,6 +213,7 @@ static int raw_output(struct tunnel_st *tl, uint8_t *data, uint32_t size)
 		return -1;
 	}
 
+	DEBUG("raw output a pkt");
 	return ret;
 }
 
@@ -263,13 +249,13 @@ static void enc_input(int fd, short event, void *arg)
 
 static int enc_output(struct tunnel_st *tl, struct raw_data_st *pkt)
 {
-	uint8_t buf[PKT_SIZE];
+	uint8_t buf[PKT_SIZE + sizeof(struct vpn_head_st)];
 	uint32_t size = sizeof(buf) - sizeof(struct vpn_head_st);
 
 	struct vpn_head_st *head = (struct vpn_head_st *)buf;
-	head->old_len = pkt->len - sizeof(struct raw_data_st);
-	
-	if (crypto_encrypt(tl->crypt, pkt->tpkt.data, head->old_len,
+
+	head->old_len = pkt->len;
+	if (crypto_encrypt(tl->crypt, pkt->data, head->old_len,
 					head->data, &size) < 0) {
 		DEBUG("drop enc failed");
 		return -1;
@@ -296,15 +282,15 @@ static void * raw_consumer(void *arg)
 		}
 		RAW_POST_WRITE_IDX(idx);
 
-		struct tunnel_st *tl = select_tunnel_by_rawpkt(pkt->tpkt.data);
+		struct tunnel_st *tl = select_tunnel_by_rawpkt(pkt->data);
 		if (!tl) {
-			DEBUG("drop raw: no find tunnel: proto: %02x", ntohs(pkt->tpkt.pi.proto));
+			DEBUG("drop raw: no find tunnel");
 			free(pkt);
 			continue;
 		}
 
 		if (enc_output(tl, pkt) < 0) {
-			DEBUG("drop raw: output failed: proto: %02x", ntohs(pkt->tpkt.pi.proto));
+			DEBUG("drop raw: output failed");
 			free(pkt);
 			continue;
 		}
@@ -346,18 +332,6 @@ int tunnel_init(int server, int nraw)
 	
 	ipc_destroy(listen);
 
-	INFO("create tun: ip: %s", get_tun_ip());
-	s_tunnel_manage.raw_fd = tun_init(get_tun_ip());
-	if (s_tunnel_manage.raw_fd < 0) {
-		ipc_destroy(s_tunnel_manage.recv);
-		return -1;
-	}
-
-	if (ev_register(s_tunnel_manage.raw_fd, raw_input, NULL) < 0) {		/* 监听内网输入数据包 */
-		ERROR("register raw input event failed");
-		goto failed;
-	}
-
 	s_tunnel_manage.server = server;
 
 	if (nraw <= 0 || nraw >= RAW_THREAD_MAX)
@@ -382,6 +356,21 @@ int tunnel_init(int server, int nraw)
 			ERROR("semphare init failed: %s", strerror(errno));
 			goto failed;
 		}
+	}
+
+	s_raw_num = nraw;
+
+	INFO("create tun: ip: %s", get_tun_ip());
+	s_tunnel_manage.raw_fd = tun_init(get_tun_ip());
+	if (s_tunnel_manage.raw_fd < 0) {
+		ipc_destroy(s_tunnel_manage.recv);
+		return -1;
+	}
+
+	/* 监听内网输入数据包, 要放在信号量初始化之后 */
+	if (ev_register(s_tunnel_manage.raw_fd, raw_input, NULL) < 0) {
+		ERROR("register raw input event failed");
+		goto failed;
 	}
 
 	return 0;

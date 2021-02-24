@@ -28,8 +28,8 @@ static int tun_open(const char * dev)
 	memset(&ifr, 0, sizeof(struct ifreq));
 	if (*dev)
 		strncpy(ifr.ifr_name, dev, IFNAMSIZ);
-	//ifr.ifr_flags |= IFF_TAP;	   /* 以太网设备 */
-	ifr.ifr_flags |= IFF_TUN;		/* 点对点设备 */
+	//ifr.ifr_flags |= IFF_TAP;	   				/* 以太网设备 */
+	ifr.ifr_flags |= (IFF_TUN | IFF_NO_PI);		/* 点对点设备, 去掉struct tun_pi包头 */
 
 	if (ioctl(fd, TUNSETIFF, (void *)&ifr) < 0)
 	{
