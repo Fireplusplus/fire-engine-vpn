@@ -35,6 +35,12 @@ struct cmd_auth_r_st {
 	uint32_t reserve;
 } VPN_PACKED;
 
+struct cmd_config_st {
+	int netcnt;
+	uint32_t reserve;
+	struct net_st net[0];
+};
+
 struct cmd_head_st {
 	uint16_t cmd;
 	uint16_t cmd_check;		/* ~cmd */
@@ -305,6 +311,14 @@ static int on_cmd_auth_r(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
 
 	conn_notify(sc);
 	return 0;
+}
+
+static int cmd_config_send(ser_cli_node *sc, const char *user)
+{
+	uint8_t buf[BUF_SIZE];
+	struct cmd_config_st *cf = (struct cmd_config_st *)buf;
+	
+	return cmd_send(sc, CMD_AUTH_R, (uint8_t*)&ar, sizeof(struct cmd_auth_r_st));
 }
 
 /* 通知新连接给tunnel_manage */

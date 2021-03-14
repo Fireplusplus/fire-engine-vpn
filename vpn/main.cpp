@@ -63,6 +63,8 @@ int main(int argc, char *argv[])
 	int opt;
 	do {
 		opt = getopt(argc, argv, "sc:t:");
+		if (opt < 0)
+			break;
 
 		switch (opt) {
 		case 's':
@@ -79,7 +81,6 @@ int main(int argc, char *argv[])
 			usage();
 			break;
 		default:
-			usage();
 			break;
 		};
 	} while (opt);
