@@ -35,7 +35,7 @@ const char * get_branch_user()
 
 const char * get_branch_pwd()
 {
-	return "testpwd";
+	return "test";
 }
 
 #define TUNNEL_ADDR	"/tmp/tunnel"

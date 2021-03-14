@@ -11,6 +11,7 @@
 #include "ipc.h"
 #include "fd_send.h"
 #include "proto.h"
+#include "user.h"
 
 #define SIMP_VERSION_1 1
 #define MAX_KEY_SIZE	16
@@ -268,7 +269,13 @@ static int on_cmd_auth_c(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
 	struct cmd_auth_c_st *ac = (struct cmd_auth_c_st *)data;
 	DEBUG("on cmd auth_c: user: %s", ac->user);
 
-	//TODO:check user/pwd
+	//check user/pwd
+	if (check_user(ac->user, ac->pwd) < 0) {
+		WARN("client auth failed: %s", ac->user);
+		cmd_auth_r_send(sc, 1);
+		return -1;
+	}
+
 	INFO("client auth passed: %s", ac->user);
 	memcpy(sc->user, ac->user, sizeof(sc->user));
 

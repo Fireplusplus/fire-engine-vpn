@@ -1,5 +1,5 @@
-#ifndef TUN_20201215
-#define TUN_20201215
+#ifndef __TUN_20201215__
+#define __TUN_20201215__
 
 #include <linux/if.h>
 #include <linux/if_tun.h>

@@ -6,7 +6,7 @@
 
 
 #ifndef alloc_die
-#define alloc_die(size)	calloc(1, (size))
+#define alloc_die(size)	(calloc(1, size) ?: (exit(1), (void*)NULL))
 #endif
 
 

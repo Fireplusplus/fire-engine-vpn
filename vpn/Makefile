@@ -7,7 +7,7 @@ COMM_PATH=$(ROOT_PATH)/comm
 
 SERVER=fire-vpn-manage
 CXX=g++
-FLAGS= -Wall -Werror -levent -lcrypto -lssl -lpthread -g
+FLAGS= -Wall -Werror -levent -lcrypto -lssl -lpthread -liniparser -g
 SUBDIRS=$(SERVER_PATH) $(VPN_PATH) $(CONFIG_PATH) $(UTILS_PATH) $(COMM_PATH)
 INCLUDE=-I$(SERVER_PATH) -I$(VPN_PATH) -I$(CONFIG_PATH) -I$(UTILS_PATH) -I$(COMM_PATH)
 

@@ -1,5 +1,5 @@
-# Fire Engine VPN
-Your lightweight VPN engine - Fire ！
+# Fire VPN
+Your lightweight VPN - Fire ！
 
 ### 开局一张图
 ![fire-vpn-struct](doc/fire-vpn-struct.jpg)
@@ -11,7 +11,7 @@ Vpn negotation: 外交官, 负责协议交互, 隧道协商
 Tunnel manage：负责维护数据隧道, 日常搬运数据包
 Route agent：灯塔，指引内网数据包走向最终的归宿
 Debug ingerface：隧道管理进程的debug接口
-Configure: 可能是ASCII的
+Configure: 懒一点就是.cpp
 ```
 
 ### 目录树

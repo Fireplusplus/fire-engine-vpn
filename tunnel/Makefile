@@ -8,7 +8,7 @@ COMM_PATH=$(ROOT_PATH)/comm
 
 SERVER=fire-tunnel-manage
 CXX=g++
-FLAGS= -DLOCAL_DEBUG -Wall -Werror -levent -lcrypto -lssl -lpthread -g
+FLAGS= -DLOCAL_DEBUG -Wall -Werror -levent -lcrypto -lssl -lpthread -liniparser -g
 SUBDIRS=$(SERVER_PATH) $(TUNNEL_PATH) $(TUN_PATH) $(CONFIG_PATH) $(UTILS_PATH) $(COMM_PATH)
 INCLUDE=-I$(SERVER_PATH) -I$(TUNNEL_PATH) -I$(TUN_PATH) -I$(CONFIG_PATH) -I$(UTILS_PATH) -I$(COMM_PATH)
 

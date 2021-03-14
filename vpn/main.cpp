@@ -12,6 +12,7 @@
 #include "ipc.h"
 #include "comm.h"
 #include "local_config.h"
+#include "user.h"
 
 
 void usage()
@@ -58,8 +59,12 @@ int main(int argc, char *argv[])
 		usage();
 	
 	int server = 0;
-	int opt = getopt(argc, argv, "sc:t:");
-	switch (opt) {
+	
+	int opt;
+	do {
+		opt = getopt(argc, argv, "sc:t:");
+
+		switch (opt) {
 		case 's':
 			server = 1;
 			break;
@@ -76,7 +81,11 @@ int main(int argc, char *argv[])
 		default:
 			usage();
 			break;
-	};
+		};
+	} while (opt);
+	
+	if (server && user_init() < 0)
+		return -1;
 
 	if (proto_init(server) < 0) {
 		return -1;

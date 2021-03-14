@@ -18,12 +18,13 @@ struct cmd_tunnel_st {
 	uint8_t pubkey[0];
 };
 
-/*
-struct subnet_st {
+
+struct net_st {
 	uint32_t ip;
 	uint32_t mask;
 } VPN_PACKED;
 
+/*
 struct cmd_config_st {
 	uint16_t cnt;
 	uint8_t data[0];
