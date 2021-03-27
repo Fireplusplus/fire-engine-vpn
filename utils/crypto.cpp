@@ -84,7 +84,8 @@ int crypto_encrypt_size(uint32_t len)
 	if (len % AES_BLOCK_SIZE)
 		return (len / AES_BLOCK_SIZE + 1) * AES_BLOCK_SIZE;
 	
-	return len;
+	/* 输入数据已经对齐时, 尾部需要留一个块大小来填充 */
+	return len + AES_BLOCK_SIZE;
 }
 
 /** @brief 获取密钥
@@ -131,8 +132,12 @@ int crypto_encrypt(const struct crypto_st *crypt, const uint8_t *in, uint32_t is
 		goto failed;
 	}
 	
-	if ((uint32_t)enc_len < isize &&
-			EVP_EncryptFinal_ex(crypt->enc, out + enc_len, &final_len) != 1) {
+	if (enc_len + AES_BLOCK_SIZE > (int)*osize) {
+		DEBUG("enc buf too small");
+		goto failed;
+	}
+
+	if (EVP_EncryptFinal_ex(crypt->enc, out + enc_len, &final_len) != 1) {
 		goto failed;
 	}
 	
@@ -152,8 +157,10 @@ failed:
  */
 int crypto_decrypt(const struct crypto_st *crypt, uint8_t *data, uint32_t *size)
 {
-	if (!crypt || !data || !size)
+	if (!crypt || !data || !size) {
+		DEBUG("param error: crypt: %p, data: %p, size: %p", crypt, data, size);
 		return -1;
+	}
 	
 	int dec_len = 0, final_len = 0;
 	uint8_t iv[EVP_MAX_IV_LENGTH] = {0};
@@ -172,6 +179,11 @@ int crypto_decrypt(const struct crypto_st *crypt, uint8_t *data, uint32_t *size)
 		goto failed;
 	}
 	
+	if (dec_len + AES_BLOCK_SIZE != (int)*size) {
+		DEBUG("data not aligned");
+		goto failed;
+	}
+
 	if (EVP_DecryptFinal_ex(crypt->dec, data + dec_len, &final_len) != 1) {
 		goto failed;
 	}
@@ -180,6 +192,7 @@ int crypto_decrypt(const struct crypto_st *crypt, uint8_t *data, uint32_t *size)
 	return 0;
 
 failed:
+	debug_openssl_error();
 	EVP_CIPHER_CTX_cleanup(crypt->dec);
 	return -1;
 }
