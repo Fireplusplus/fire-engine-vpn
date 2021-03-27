@@ -13,7 +13,7 @@ struct ser_cli_node {
 	int status;						/* TODO: 协商状态, 协商成功的需要移除 */
 	uint64_t last_active;			/* TODO: 上次活跃时间, 超时需要移除 */
 
-	char user[MAX_USER_LEN];		/* 用户名 */
+	const struct user_st * user;			/* 用户信息 */
 	
 	uint8_t server:1;
 };

@@ -11,7 +11,7 @@
 #include "ipc.h"
 #include "fd_send.h"
 #include "proto.h"
-#include "user.h"
+#include "config.h"
 
 #define SIMP_VERSION_1 1
 #define MAX_KEY_SIZE	16
@@ -32,14 +32,10 @@ struct cmd_auth_c_st {
 struct cmd_auth_r_st {
 	uint16_t code;
 	int32_t seed;		/* 随机种子,客户端建立数据通道时发给服务端校验 */
-	uint32_t reserve;
-} VPN_PACKED;
-
-struct cmd_config_st {
 	int netcnt;
 	uint32_t reserve;
-	struct net_st net[0];
-};
+	uint8_t data[0];
+} VPN_PACKED;
 
 struct cmd_head_st {
 	uint16_t cmd;
@@ -55,6 +51,7 @@ typedef int (*do_cmd)(ser_cli_node *sc, uint8_t *data, uint16_t dlen);
 
 static int cmd_key_send(ser_cli_node *sc);
 static int cmd_auth_c_send(ser_cli_node *sc);
+static int cmd_auth_r_send(ser_cli_node *sc, uint16_t code);
 static int on_cmd_key(ser_cli_node *sc, uint8_t *data, uint16_t dlen);
 static int on_cmd_auth_c(ser_cli_node *sc, uint8_t *data, uint16_t dlen);
 static int on_cmd_auth_r(ser_cli_node *sc, uint8_t *data, uint16_t dlen);
@@ -131,7 +128,7 @@ int start_connect(ser_cli_node *sc)
 
 static int cmd_send(const ser_cli_node *sc, uint16_t cmd, uint8_t *buf, uint32_t len)
 {
-	int enc = (cmd >= CMD_ENC_BEGIN && cmd <= CMD_END) ? 1 : 0;
+	int enc = (cmd >= CMD_ENC_BEGIN && cmd <= CMD_ENC_END) ? 1 : 0;
 	uint32_t dlen = enc ? crypto_encrypt_size(len) : len;
 	struct cmd_head_st *hdr;
 
@@ -247,22 +244,9 @@ static int cmd_auth_c_send(ser_cli_node *sc)
 	
 	snprintf((char*)&ac.user, sizeof(ac.user), "%s", get_branch_user());
 	snprintf((char*)&ac.pwd, sizeof(ac.pwd), "%s", get_branch_pwd());
-	memcpy(sc->user, ac.user, sizeof(sc->user));
 	
 	DEBUG("cmd auth_c send: user: %s", ac.user);
 	return cmd_send(sc, CMD_AUTH_C, (uint8_t*)&ac, sizeof(struct cmd_auth_c_st));
-}
-
-static int cmd_auth_r_send(ser_cli_node *sc, uint16_t code)
-{
-	struct cmd_auth_r_st ar;
-	ar.code = code;
-	ar.seed = safe_rand();
-
-	sc->seed = ar.seed;
-	
-	DEBUG("cmd auth_r send: code: %u", ar.code);
-	return cmd_send(sc, CMD_AUTH_R, (uint8_t*)&ar, sizeof(struct cmd_auth_r_st));
 }
 
 static int on_cmd_auth_c(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
@@ -275,15 +259,20 @@ static int on_cmd_auth_c(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
 	struct cmd_auth_c_st *ac = (struct cmd_auth_c_st *)data;
 	DEBUG("on cmd auth_c: user: %s", ac->user);
 
+	sc->user = get_user(ac->user);
+	if (!sc->user) {
+		WARN("client auth failed: not found user(%s)", ac->user);
+		return -1;
+	}
+
 	//check user/pwd
-	if (check_user(ac->user, ac->pwd) < 0) {
+	if (check_user(sc->user, ac->pwd) < 0) {
 		WARN("client auth failed: %s", ac->user);
 		cmd_auth_r_send(sc, 1);
 		return -1;
 	}
 
 	INFO("client auth passed: %s", ac->user);
-	memcpy(sc->user, ac->user, sizeof(sc->user));
 
 	if (conn_notify(sc) < 0) {
 		return -1;
@@ -292,33 +281,48 @@ static int on_cmd_auth_c(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
 	return cmd_auth_r_send(sc, 0);
 }
 
-static int on_cmd_auth_r(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
+static int cmd_auth_r_send(ser_cli_node *sc, uint16_t code)
 {
-	if (dlen != sizeof(struct cmd_auth_r_st)) {
-		DEBUG("cmd auth_r invalid: dlen: %u, expected: %u", dlen, (uint32_t)sizeof(struct cmd_auth_r_st));
+	uint8_t buf[BUF_SIZE];
+	struct cmd_auth_r_st *ar = (struct cmd_auth_r_st *)buf;
+	ar->code = code;
+	ar->seed = safe_rand();
+
+	ar->netcnt = get_user_net(sc->user, (char *)ar->data, sizeof(buf) - sizeof(*ar));
+	if (ar->netcnt < 0) {
+		DEBUG("get user net failed");
 		return -1;
 	}
 
+	DEBUG("net count: %d", ar->netcnt);
+
+	sc->seed = ar->seed;
+	
+	DEBUG("cmd auth_r send: code: %u", ar->code);
+	return cmd_send(sc, CMD_AUTH_R, (uint8_t*)ar, sizeof(*ar) + ar->netcnt * sizeof(struct net_st));
+}
+
+static int on_cmd_auth_r(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
+{
 	struct cmd_auth_r_st *ar = (struct cmd_auth_r_st *)data;
+	if (dlen != sizeof(*ar) + ar->netcnt * sizeof(struct net_st)) {
+		DEBUG("cmd auth_r invalid: dlen: %u, expected: %u", dlen, 
+			(uint32_t)(sizeof(*ar) + ar->netcnt * sizeof(struct net_st)));
+		return -1;
+	}
+
 	if (ar->code) {
 		WARN("recv server response: auth failed: %u", ar->code);
 		return -1;
 	}
 
+	//TODO: 添加路由
 	sc->seed = ar->seed;
 
 	INFO("auth passed");
 
 	conn_notify(sc);
 	return 0;
-}
-
-static int cmd_config_send(ser_cli_node *sc, const char *user)
-{
-	uint8_t buf[BUF_SIZE];
-	struct cmd_config_st *cf = (struct cmd_config_st *)buf;
-	
-	return cmd_send(sc, CMD_AUTH_R, (uint8_t*)&ar, sizeof(struct cmd_auth_r_st));
 }
 
 /* 通知新连接给tunnel_manage */
@@ -338,7 +342,7 @@ static int conn_notify(ser_cli_node *sc)
 
 	tn->klen = ret;
 	tn->seed = sc->seed;
-	memcpy(tn->user, sc->user, sizeof(tn->user));
+	snprintf(tn->user, sizeof(tn->user), "%s", get_user_name(sc->user));
 
 	/* 发送文件描述符到tunnel_manage */
 	if (send_fd(ipc_fd(s_tunnel_ipc), ipc_fd(sc->ipc), 

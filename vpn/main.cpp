@@ -12,7 +12,7 @@
 #include "ipc.h"
 #include "comm.h"
 #include "local_config.h"
-#include "user.h"
+#include "config.h"
 
 
 void usage()
@@ -85,7 +85,7 @@ int main(int argc, char *argv[])
 		};
 	} while (opt);
 	
-	if (server && user_init() < 0)
+	if (server && config_init() < 0)
 		return -1;
 
 	if (proto_init(server) < 0) {
