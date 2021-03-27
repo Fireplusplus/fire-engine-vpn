@@ -134,7 +134,8 @@ static void print_user(struct user_st *user)
 	assert(user);
 	int cnt = user->nnets;
 
-	DEBUG("user: name: %s, pwd: %s", user->name.c_str(), user->pwd.c_str());
+	DEBUG("user: ");
+	DEBUG("      name: %s, pwd: %s", user->name.c_str(), user->pwd.c_str());
 
 	struct net_st *nets = (struct net_st*)user->data;
 	DEBUG("      nets: %d", cnt);
