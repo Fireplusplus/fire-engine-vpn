@@ -34,6 +34,32 @@ ev_rss s_ev_rss = easy_ev_rss;								/* 区域选择 */
 #define CUR_EV_BASE(_fd, _arg)		(s_ev_base[s_ev_rss(_fd, _arg) % s_zone_size])
 
 /*
+ * @brief 定时事件
+ * @param[in] timeout 定时时间(s)
+ * @param[in] fn 定时事件回调
+ * @param[in] arg fn的第三个参数
+ * @return <0: 失败 0: 成功
+ */
+int ev_timer(int timeout, ev_callback fn, void *arg)
+{
+	struct event_base *eb = s_ev_base[0];
+	assert(eb != NULL);
+
+	struct event *ev = event_new(eb, -1, EV_PERSIST, fn, arg);
+	if (!ev) {
+		DEBUG("create event failed");
+		return -1;
+	}
+
+	struct timeval tv;
+	evutil_timerclear(&tv);
+	tv.tv_sec = timeout;
+
+	event_add(ev, &tv);
+	return 0;
+}
+
+/*
  * @brief 注册事件
  * @param[in] fd 文件描述符
  * @param[in] fn 读事件回调

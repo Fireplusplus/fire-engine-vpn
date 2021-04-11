@@ -6,6 +6,15 @@ typedef void (*ev_callback)(int, short, void *);
 typedef uint32_t (*ev_rss)(int fd, void *arg);
 
 /*
+ * @brief 定时事件
+ * @param[in] timeout 定时时间(s)
+ * @param[in] fn 定时事件回调
+ * @param[in] arg fn的第三个参数
+ * @return <0: 失败 0: 成功
+ */
+int ev_timer(int timeout, ev_callback fn, void *arg);
+
+/*
  * @brief 注册事件
  * @param[in] fd 文件描述符
  * @param[in] fn 读事件回调

@@ -288,7 +288,7 @@ static int cmd_auth_r_send(ser_cli_node *sc, uint16_t code)
 	ar->code = code;
 	ar->seed = safe_rand();
 
-	ar->netcnt = get_user_net(sc->user, (char *)ar->data, sizeof(buf) - sizeof(*ar));
+	ar->netcnt = get_server_net((char *)ar->data, sizeof(buf) - sizeof(*ar));
 	if (ar->netcnt < 0) {
 		DEBUG("get user net failed");
 		return -1;

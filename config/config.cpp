@@ -116,6 +116,18 @@ int get_user_net(const struct user_st *user, char *buf, int size)
 	return cnt;
 }
 
+int get_server_net(char *buf, int size)
+{
+	if (!buf || size <= 0)
+		return 0;
+
+	int cnt = size / sizeof(struct net_st);
+	cnt = cnt < s_server_conf.nnets ? cnt : s_server_conf.nnets;
+
+	memcpy(buf, s_server_conf.nets, cnt * sizeof(struct net_st));
+	return cnt;
+}
+
 int check_user(const struct user_st *user, const char *pwd)
 {
 	if (!user || !pwd)

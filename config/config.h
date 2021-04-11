@@ -7,6 +7,8 @@ int check_user(const struct user_st *user, const char *pwd);
 
 const char * get_user_name(const struct user_st *user);
 
+int get_server_net(char *buf, int size);
+
 int get_user_net(const struct user_st *user, char *buf, int size);
 
 const struct user_st * get_user(const char *name);
