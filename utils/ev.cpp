@@ -33,29 +33,53 @@ ev_rss s_ev_rss = easy_ev_rss;								/* 区域选择 */
 
 #define CUR_EV_BASE(_fd, _arg)		(s_ev_base[s_ev_rss(_fd, _arg) % s_zone_size])
 
+struct timer_st {
+	struct event *ev;
+	void (*user_fn)(void *arg);		/* 用户回调 */
+	void *user_data;				/* 用户回调参数 */
+};
+
+static void ev_timer_callback(int fd, short what, void *arg){
+	struct timer_st *tm = (struct timer_st *)arg;
+	assert(tm != NULL);
+	
+	event_del(tm->ev);
+	event_free(tm->ev);
+
+	if (tm->user_fn)
+		tm->user_fn(tm->user_data);
+
+	free(tm);
+}
+
 /*
- * @brief 定时事件
- * @param[in] timeout 定时时间(s)
- * @param[in] fn 定时事件回调
- * @param[in] arg fn的第三个参数
+ * @brief 超时事件
+ * @param[in] timeout 超时时间(s)
+ * @param[in] fn 超时事件回调
+ * @param[in] arg fn的参数
  * @return <0: 失败 0: 成功
  */
-int ev_timer(int timeout, ev_callback fn, void *arg)
+int ev_timer(int timeout, void (*fn)(void *), void *arg)
 {
 	struct event_base *eb = s_ev_base[0];
 	assert(eb != NULL);
 
-	struct event *ev = event_new(eb, -1, EV_PERSIST, fn, arg);
-	if (!ev) {
+	struct timer_st *tm = (struct timer_st*)alloc_die(sizeof(struct timer_st));
+
+	tm->ev = evtimer_new(eb, ev_timer_callback, tm);
+	if (!tm->ev) {
 		DEBUG("create event failed");
 		return -1;
 	}
+
+	tm->user_fn = fn;
+	tm->user_data = arg;
 
 	struct timeval tv;
 	evutil_timerclear(&tv);
 	tv.tv_sec = timeout;
 
-	event_add(ev, &tv);
+	event_add(tm->ev, &tv);
 	return 0;
 }
 
