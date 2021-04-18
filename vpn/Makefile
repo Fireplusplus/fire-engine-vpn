@@ -7,9 +7,9 @@ COMM_PATH=$(ROOT_PATH)/comm
 
 SERVER=fire-vpn-manage
 CXX=g++
-FLAGS= -Wall -Werror -levent -lcrypto -lssl -lpthread -liniparser -g
+FLAGS= -Wall -Werror -levent -lcrypto -lssl -lpthread -liniparser -lnl-route-3 -lnl-3 -g
 SUBDIRS=$(SERVER_PATH) $(VPN_PATH) $(CONFIG_PATH) $(UTILS_PATH) $(COMM_PATH)
-INCLUDE=-I$(SERVER_PATH) -I$(VPN_PATH) -I$(CONFIG_PATH) -I$(UTILS_PATH) -I$(COMM_PATH)
+INCLUDE=-I$(SERVER_PATH) -I$(VPN_PATH) -I$(CONFIG_PATH) -I$(UTILS_PATH) -I$(COMM_PATH) -I/usr/include/libnl3
 
 SER_SRC=$(shell ls $(SUBDIRS) | grep -E ".cpp")
 SER_OBJ=$(SER_SRC:.cpp=.o)

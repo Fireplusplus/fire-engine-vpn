@@ -12,6 +12,7 @@
 #include "fd_send.h"
 #include "proto.h"
 #include "config.h"
+#include "tunnel_route.CPP"
 
 #define SIMP_VERSION_1 1
 #define MAX_KEY_SIZE	16
@@ -297,6 +298,15 @@ static int cmd_auth_r_send(ser_cli_node *sc, uint16_t code)
 	DEBUG("net count: %d", ar->netcnt);
 
 	sc->seed = ar->seed;
+
+	char user_nets[BUF_SIZE];
+	int cnt = get_user_net(sc->user, user_nets, sizeof(user_nets));
+
+	/* 添加用户路由 */
+	if (tunnel_route_add(cnt, (struct net_st *)user_nets) < 0) {
+		WARN("route to client add failed !");
+		return -1;
+	}
 	
 	DEBUG("cmd auth_r send: code: %u", ar->code);
 	return cmd_send(sc, CMD_AUTH_R, (uint8_t*)ar, sizeof(*ar) + ar->netcnt * sizeof(struct net_st));
@@ -316,7 +326,12 @@ static int on_cmd_auth_r(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
 		return -1;
 	}
 
-	//TODO: 添加路由
+	/* 添加发往server的路由 */
+	if (tunnel_route_add(ar->netcnt, (struct net_st *)ar->data) < 0) {
+		WARN("route to server add failed !");
+		return -1;
+	}
+
 	sc->seed = ar->seed;
 
 	INFO("auth passed");

@@ -32,3 +32,31 @@ uint32_t str2ip(const char *str)
 	
 	return ip;
 }
+
+static uint32_t byte2bit(uint8_t byte)
+{
+	int cnt = 0;
+	int n = 0x80;
+
+	while (byte & n) {
+		cnt++;
+		n >>= 1;
+	}
+
+	return cnt;
+}
+
+uint32_t mask2bit(uint32_t mask)
+{
+	mask = ntohl(mask);
+
+	if (mask >= 0xFFFFFF) {
+		return 24 + byte2bit(mask & 0xFF);
+	} else if (mask >= 0xFFFF) {
+		return 16 + byte2bit(mask >> 8 & 0xFF);
+	} else if (mask >= 0xFF) {
+		return 8 + byte2bit(mask >> 16 & 0xFF);
+	} else {
+		return byte2bit(mask >> 24 & 0xFF);
+	}
+}
