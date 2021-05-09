@@ -50,11 +50,11 @@ uint32_t mask2bit(uint32_t mask)
 {
 	mask = ntohl(mask);
 
-	if (mask >= 0xFFFFFF) {
+	if (mask >= 0xFFFFFF00) {
 		return 24 + byte2bit(mask & 0xFF);
-	} else if (mask >= 0xFFFF) {
+	} else if (mask >= 0xFFFF0000) {
 		return 16 + byte2bit(mask >> 8 & 0xFF);
-	} else if (mask >= 0xFF) {
+	} else if (mask >= 0xFF000000) {
 		return 8 + byte2bit(mask >> 16 & 0xFF);
 	} else {
 		return byte2bit(mask >> 24 & 0xFF);

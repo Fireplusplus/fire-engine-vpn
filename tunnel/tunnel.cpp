@@ -181,6 +181,8 @@ static void raw_input(int fd, short event, void *arg)
 		return; 
 	}
 
+	DEBUG("raw input len: %d", pkt->len);
+
 	struct tunnel_st *tl = select_tunnel_by_rawpkt(pkt->data);
 	if (!tl) {
 		DEBUG("drop raw: not find tunnel");

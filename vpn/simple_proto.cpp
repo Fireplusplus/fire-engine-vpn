@@ -357,7 +357,8 @@ static int conn_notify(ser_cli_node *sc)
 
 	tn->klen = ret;
 	tn->seed = sc->seed;
-	snprintf(tn->user, sizeof(tn->user), "%s", get_user_name(sc->user));
+	snprintf(tn->user, sizeof(tn->user), "%s", 
+		sc->user ? get_user_name(sc->user) : get_branch_user());
 
 	/* 发送文件描述符到tunnel_manage */
 	if (send_fd(ipc_fd(s_tunnel_ipc), ipc_fd(sc->ipc), 
