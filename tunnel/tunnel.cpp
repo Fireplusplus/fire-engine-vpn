@@ -6,9 +6,10 @@
 #include <assert.h>
 #include <arpa/inet.h>
 #include <semaphore.h>
+#include <linux/ip.h>
 
 #include <iostream>
-#include <unordered_map>
+#include <map>
 
 #include "tunnel.h"
 #include "log.h"
@@ -65,12 +66,54 @@ struct vpn_head_st {
 	uint8_t data[0];
 } VPN_PACKED;
 
+/*
+
+route tree
+
+0.0.0.0~255.255.255.255
+
+0.0.0.0~126.255.255.255	 127.0.0.1~255.255.255.255
+
+0.0.0.0~63.255.255.255.255 64.0.0.1~126.255.255.255  127.0.0.1~191.255.255.255 192.0.0.0~255.255.255.255
+
+*/
+
+struct net_range_st {
+	uint32_t start;
+	uint32_t end; 
+};
+
+bool range_comp(net_range_st *lhs, net_range_st *rhs)
+{
+	char buf[20], buf2[20], buf3[20], buf4[20];
+
+	if (lhs->start < rhs->start && lhs->end < rhs->end) {
+		DEBUG("true: lhs: %s~%s, rhs: %s~%s", 
+			ip2str(lhs->start, buf, 20),
+			ip2str(lhs->end, buf2, 20),
+			ip2str(rhs->start, buf3, 20),
+			ip2str(rhs->end, buf4, 20));
+		return true;
+	}
+	
+	DEBUG("false: lhs: %s~%s, rhs: %s~%s", 
+			ip2str(lhs->start, buf, 20),
+			ip2str(lhs->end, buf2, 20),
+			ip2str(rhs->start, buf3, 20),
+			ip2str(rhs->end, buf4, 20));
+	return false;
+}
+
+typedef bool (*net_comp)(net_range_st *, net_range_st *);
+
+map<net_range_st *, tunnel_st *, net_comp> s_tunnel_list(range_comp);
+
 
 #define RING_BUF_SIZE		1024
 #define RAW_THREAD_MAX		8
 
 static struct tunnel_manage_st s_tunnel_manage;					/* 全局管理信息 */
-static unordered_map<int, tunnel_st*> s_tunnel_list;			/* 隧道信息缓存表 */
+//static unordered_map<int, tunnel_st*> s_tunnel_list;			/* 隧道信息缓存表 */
 static struct ring_buf_st * s_raw_bufs[RAW_THREAD_MAX];			/* 内网数据包缓冲区 */
 static pthread_t s_raw_threads[RAW_THREAD_MAX];					/* 内网数据处理线程 */
 static sem_t s_raw_read_sems[RAW_THREAD_MAX];					/* 内网数据包缓冲可读信号量 */
@@ -94,11 +137,6 @@ static int enc_output(struct tunnel_st *tl, struct raw_data_st *pkt);
 static void tunnel_destroy(struct tunnel_st *tl)
 {
 	ev_unregister(tl->fd);
-
-	unordered_map<int, tunnel_st*>::iterator it= s_tunnel_list.find(tl->fd);
-	if (it != s_tunnel_list.end())
-		s_tunnel_list.erase(it);
-	
 	crypto_destroy(tl->crypt);
 	
 	if (tl->fd)
@@ -106,6 +144,21 @@ static void tunnel_destroy(struct tunnel_st *tl)
 	
 	INFO("conn(%s) fd(%d) is broken", tl->user, tl->fd);
 	free(tl);
+}
+
+static net_range_st * net_range_create(net_st *net)
+{
+	assert(net);
+	
+	net_range_st *nr = (net_range_st *)calloc(1, sizeof(net_range_st));
+	if (!nr)
+		return NULL;
+	
+	//127.1.0.0/255.255.0.0 ==> 127.1.0.0~127.1.255.255
+	nr->start = net->ip & net->mask;
+	nr->end = nr->start | (~(net->mask));
+
+	return nr;
 }
 
 static tunnel_st * tunnel_create(int fd, uint8_t *buf, int size)
@@ -116,12 +169,7 @@ static tunnel_st * tunnel_create(int fd, uint8_t *buf, int size)
 		return NULL;
 	}
 
-	unordered_map<int, tunnel_st*>::iterator it= s_tunnel_list.find(fd);
-	if (it != s_tunnel_list.end()) {
-		WARN("fd(%d) is already in use, user(%s) established failed", fd, cmd->user);
-		return NULL;
-	}
-
+	int i;
 	tunnel_st *tl = (tunnel_st*)calloc(1, sizeof(tunnel_st));
 	if (!tl)
 		return NULL;
@@ -136,12 +184,30 @@ static tunnel_st * tunnel_create(int fd, uint8_t *buf, int size)
 	if (ev_register(fd, enc_input, tl) < 0)
 		goto failed;
 	
-	s_tunnel_list[fd] = tl;
+	for (i = 0; i < (int)(sizeof(cmd->nets) / sizeof(cmd->nets[0])); i++) {
+		struct net_st *net = &(cmd->nets[i]);
+		if (!net->ip || !net->mask)
+			break;
+		
+		net_range_st *nr = net_range_create(net);
+		if (!nr) {
+			/* 定期根据活跃时间删除无效的隧道, 此处失败不用管了 */
+			goto failed;
+		}
+
+		char buf[20], buf2[20];
+		DEBUG("true: add range: %s~%s", 
+			ip2str(nr->start, buf, 20),
+			ip2str(nr->end, buf2, 20));
+		s_tunnel_list[nr] = tl;
+	}
+	
 	INFO("conn(%s) fd(%d) established success", tl->user, tl->fd);
 	return tl;
 
 failed:
-	tunnel_destroy(tl);
+	if (i <= 0)
+		tunnel_destroy(tl);
 	return NULL;
 }
 
@@ -156,13 +222,27 @@ uint32_t tunnel_ev_rss(int fd, void *arg)
 }
 
 /* 根据路由查询所属隧道 */
-static struct tunnel_st * select_tunnel_by_rawpkt(uint8_t *pkt)
+static struct tunnel_st * select_tunnel_by_rawpkt(struct raw_data_st *pkt)
 {
 	if (s_tunnel_list.empty())
 		return NULL;
 	
-	/* TODO: 根据路由查询所属隧道 */
-	return s_tunnel_list.begin()->second;
+	struct iphdr *iph = (struct iphdr *)pkt->data;
+
+	char sip[16], dip[16];
+	DEBUG("ip head len: %u, saddr: %s, daddr: %s", iph->ihl << 2, 
+				ip2str(iph->saddr, sip, sizeof(sip)),
+				ip2str(iph->daddr, dip, sizeof(dip)));
+	
+	struct net_range_st nr = {iph->daddr, iph->daddr};
+	map<net_range_st *, tunnel_st *, net_comp>::iterator it;
+	it = s_tunnel_list.find(&nr);
+	if (it == s_tunnel_list.end()) {
+		return NULL;
+	}
+
+	DUMP_HEX("raw pkt", pkt->data, pkt->len);
+	return it->second;
 }
 
 /* 处理原始输入: 识别隧道, buf分发 */
@@ -183,7 +263,7 @@ static void raw_input(int fd, short event, void *arg)
 
 	DEBUG("raw input len: %d", pkt->len);
 
-	struct tunnel_st *tl = select_tunnel_by_rawpkt(pkt->data);
+	struct tunnel_st *tl = select_tunnel_by_rawpkt(pkt);
 	if (!tl) {
 		DEBUG("drop raw: not find tunnel");
 		free(pkt);
@@ -284,7 +364,7 @@ static void * raw_consumer(void *arg)
 		}
 		RAW_POST_WRITE_IDX(idx);
 
-		struct tunnel_st *tl = select_tunnel_by_rawpkt(pkt->data);
+		struct tunnel_st *tl = select_tunnel_by_rawpkt(pkt);
 		if (!tl) {
 			DEBUG("drop raw: no find tunnel");
 			free(pkt);

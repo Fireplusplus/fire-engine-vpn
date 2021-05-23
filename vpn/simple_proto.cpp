@@ -56,7 +56,7 @@ static int cmd_auth_r_send(ser_cli_node *sc, uint16_t code);
 static int on_cmd_key(ser_cli_node *sc, uint8_t *data, uint16_t dlen);
 static int on_cmd_auth_c(ser_cli_node *sc, uint8_t *data, uint16_t dlen);
 static int on_cmd_auth_r(ser_cli_node *sc, uint8_t *data, uint16_t dlen);
-static int conn_notify(ser_cli_node *sc);
+static int conn_notify(ser_cli_node *sc, net_st *nets, int netcnt);
 
 
 #define CMD_ENC_BEGIN CMD_AUTH_C
@@ -275,7 +275,7 @@ static int on_cmd_auth_c(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
 
 	INFO("client auth passed: %s", ac->user);
 
-	if (conn_notify(sc) < 0) {
+	if (conn_notify(sc, NULL, 0) < 0) {
 		return -1;
 	}
 
@@ -336,12 +336,12 @@ static int on_cmd_auth_r(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
 
 	INFO("auth passed");
 
-	conn_notify(sc);
+	conn_notify(sc, (struct net_st *)ar->data, ar->netcnt);
 	return 0;
 }
 
 /* 通知新连接给tunnel_manage */
-static int conn_notify(ser_cli_node *sc)
+static int conn_notify(ser_cli_node *sc, struct net_st *nets, int netcnt)
 {
 	uint8_t buf[BUF_SIZE];
 	struct cmd_tunnel_st *tn = (struct cmd_tunnel_st *)buf;
@@ -354,6 +354,16 @@ static int conn_notify(ser_cli_node *sc)
 	if (ret < 0) {
 		return -1;
 	}
+
+	int cnt;
+	if (sc->server) {
+		cnt = get_user_net(sc->user, (char*)tn->nets, sizeof(tn->nets));
+	} else {
+		memcpy((char*)tn->nets, nets, MIN(netcnt, MAX_NETS_CNT) * sizeof(*nets));
+		cnt = netcnt;
+	}
+
+	DEBUG("nets cnt: %d", cnt);
 
 	tn->klen = ret;
 	tn->seed = sc->seed;
