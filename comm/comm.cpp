@@ -1,9 +1,19 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <sys/sysinfo.h>
 
 #include "comm.h"
 
+uint64_t cur_time()
+{
+	struct sysinfo info;
+	if (sysinfo(&info) < 0) {
+		return 0;
+	}
+
+	return info.uptime;
+}
 
 struct tm * get_local_time()
 {

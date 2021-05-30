@@ -18,7 +18,7 @@ struct net_st {
 struct cmd_tunnel_st {
 	uint32_t dst_ip;
 	short dst_port;
-	int32_t seed;
+	uint32_t seed;
 	uint32_t klen;
 	char user[MAX_USER_LEN];
 	struct net_st nets[MAX_NETS_CNT];

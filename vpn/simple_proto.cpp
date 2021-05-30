@@ -171,6 +171,8 @@ static int cmd_key_send(ser_cli_node *sc)
 {
 	uint8_t buf[BUF_SIZE];
 	struct cmd_key_st *key = (struct cmd_key_st *)&buf;
+
+	sc->status = sc->server ? SC_KEY_R_SEND : SC_KEY_C_SEND;
 	
 	if (!sc->dh)
 		sc->dh = dh_create();
@@ -243,6 +245,7 @@ static int cmd_auth_c_send(ser_cli_node *sc)
 {
 	struct cmd_auth_c_st ac;
 	
+	sc->status = SC_AUTH_C_SEND;
 	snprintf((char*)&ac.user, sizeof(ac.user), "%s", get_branch_user());
 	snprintf((char*)&ac.pwd, sizeof(ac.pwd), "%s", get_branch_pwd());
 	
@@ -275,17 +278,19 @@ static int on_cmd_auth_c(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
 
 	INFO("client auth passed: %s", ac->user);
 
-	if (conn_notify(sc, NULL, 0) < 0) {
+	if (cmd_auth_r_send(sc, 0) < 0) {
 		return -1;
 	}
 
-	return cmd_auth_r_send(sc, 0);
+	return conn_notify(sc, NULL, 0);
 }
 
 static int cmd_auth_r_send(ser_cli_node *sc, uint16_t code)
 {
 	uint8_t buf[BUF_SIZE];
 	struct cmd_auth_r_st *ar = (struct cmd_auth_r_st *)buf;
+
+	sc->status = SC_AUTH_R_SEND;
 	ar->code = code;
 	ar->seed = safe_rand();
 
@@ -377,6 +382,8 @@ static int conn_notify(ser_cli_node *sc, struct net_st *nets, int netcnt)
 	}
 
 	INFO("notify tunnel manage to create tunnel");
+	sc->status = SC_SUCCESS;
+
 	return 0;
 }
 

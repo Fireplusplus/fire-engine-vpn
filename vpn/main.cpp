@@ -96,11 +96,10 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
-	while (1) {
-		event_register();
+	event_register();
 
+	while (1) {
 		(void)ev_run();
-		INFO("all event over !\n");
 
 		sleep(3);
 	}

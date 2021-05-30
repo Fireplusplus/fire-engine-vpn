@@ -21,6 +21,9 @@
 
 using namespace std;
 
+#define SC_NODE_TIMEOUT		10
+#define SC_CLEAN_INTERVAL	10
+
 struct event_action_st {
 	ipc_st * (*create)();
 	void (*destroy)(ipc_st *);
@@ -57,6 +60,7 @@ static ser_cli_node * sc_info_create(ipc_st *ipc, int server)
 	
 	sc->ipc = ipc;
 	sc->server = server;
+	sc->last_active_time = cur_time();
 
 	sc_info_add(ipc, sc);
 	return sc;
@@ -99,18 +103,25 @@ static ipc_st * sc_info_ipc(int fd)
 /* 读事件回调 */
 static void on_read(int fd, short what, void *arg)
 {
+	ser_cli_node *sc = (ser_cli_node *)arg;
 	ipc_st *ipc = sc_info_ipc(fd);
 	
-    char buf[65535];
+	char buf[65535];
 	int len = ipc_recv(ipc, buf, sizeof(buf));
-	if (len < 0) {
-		return;
-	}
 	
-	if (len == 0) {
+	if (len <= 0) {
 		sc_info_destroy((ser_cli_node *)arg);
+		DEBUG("invalid recv len: %d, destroy sc node, fd: %d", len, fd);
 		return;
 	}
+
+	if (sc->status == SC_SUCCESS) {
+		sc_info_destroy((ser_cli_node *)arg);
+		DEBUG("normal destroy sc node which succeed, fd: %d", fd);
+		return;
+	}
+
+	sc->last_active_time = cur_time();
 	
 	DEBUG("recv: len: %d, what: %d\n", len, what);
 	if (on_cmd((ser_cli_node *)arg, (uint8_t *)&buf, len) < 0) {
@@ -177,6 +188,21 @@ failed:
 	exit(-1);
 }
 
+void sc_clean_timer(void *arg)
+{
+	static unordered_map<int, ser_cli_node*> s_sc_info_list;
+	uint64_t now = cur_time();
+
+	for (auto &v : s_sc_info_list) {
+		if (now > v.second->last_active_time + SC_NODE_TIMEOUT) {
+			DEBUG("destroy timeout tunnel: fd: %d", v.first);
+			sc_info_destroy(v.second);
+		}
+	}
+
+	ev_timer(SC_CLEAN_INTERVAL, sc_clean_timer, NULL);
+}
+
 /* 初始化服务环境 */
 int event_init(int server)
 {
@@ -188,5 +214,8 @@ int event_init(int server)
 	if (ev_init(0, NULL) < 0)
 		return -1;
 	
+	if (ev_timer(SC_CLEAN_INTERVAL, sc_clean_timer, NULL) < 0)
+		return -1;
+
 	return 0;
 }

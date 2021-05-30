@@ -48,7 +48,7 @@ struct tunnel_manage_st {
 
 struct tunnel_st {
 	int fd;							/* 加密流通信句柄 */
-	int seed;						/* 随机种子 */
+	uint32_t seed;					/* 随机种子 */
 	struct crypto_st *crypt;		/* 加密器 */
 	char user[MAX_USER_LEN];		/* 用户名 */
 	uint64_t last_active;			/* 上次活跃时间 */
