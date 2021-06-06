@@ -14,6 +14,7 @@
 #include "events.h"
 #include "crypto.h"
 #include "dh_group.h"
+#include "config.h"
 #include "local_config.h"
 #include "simple_proto.h"
 #include "ipc.h"
@@ -37,21 +38,13 @@ static int s_server;
 static void sc_info_add(ipc_st *ipc, ser_cli_node *sc)
 {
 	assert(ipc && sc);
-	
-	unordered_map<int, ser_cli_node*>::iterator it = s_sc_info_list.find(ipc_fd(ipc));
+	int fd = ipc_fd(ipc);
+	unordered_map<int, ser_cli_node*>::iterator it = s_sc_info_list.find(fd);
 	if (it != s_sc_info_list.end()) {
 		return;
 	}
 	
-	s_sc_info_list[ipc_fd(ipc)] = sc;
-}
-
-static void sc_info_del(ipc_st *ipc)
-{
-	unordered_map<int, ser_cli_node*>::iterator it = s_sc_info_list.find(ipc_fd(ipc));
-	if (it != s_sc_info_list.end()) {
-		s_sc_info_list.erase(it);
-	}
+	s_sc_info_list[fd] = sc;
 }
 
 static ser_cli_node * sc_info_create(ipc_st *ipc, int server)
@@ -70,8 +63,7 @@ static void sc_info_destroy(ser_cli_node *sc)
 {
 	if (!sc)
 		return;
-	
-	sc_info_del(sc->ipc);
+
 	ev_unregister(ipc_fd(sc->ipc));
 	crypto_destroy(sc->crypt);
 	dh_destroy(sc->dh);
@@ -90,6 +82,7 @@ static ipc_st * listener_create()
 	return ipc_listener_create(AF_INET, get_server_ip(), get_server_port());
 }
 
+#if 0
 static ipc_st * sc_info_ipc(int fd)
 {
 	unordered_map<int, ser_cli_node*>::iterator it = s_sc_info_list.find(fd);
@@ -99,25 +92,24 @@ static ipc_st * sc_info_ipc(int fd)
 	assert(it->second->ipc);
 	return it->second->ipc;
 }
+#endif
 
 /* 读事件回调 */
 static void on_read(int fd, short what, void *arg)
 {
 	ser_cli_node *sc = (ser_cli_node *)arg;
-	ipc_st *ipc = sc_info_ipc(fd);
+	ipc_st *ipc = sc->ipc;
 	
 	char buf[65535];
 	int len = ipc_recv(ipc, buf, sizeof(buf));
 	
 	if (len <= 0) {
-		sc_info_destroy((ser_cli_node *)arg);
-		DEBUG("invalid recv len: %d, destroy sc node, fd: %d", len, fd);
+		DEBUG("invalid recv len: %d, fd: %d, reset status", len, fd);
+		sc->status = SC_INIT;
 		return;
 	}
 
 	if (sc->status == SC_SUCCESS) {
-		sc_info_destroy((ser_cli_node *)arg);
-		DEBUG("normal destroy sc node which succeed, fd: %d", fd);
 		return;
 	}
 
@@ -126,14 +118,14 @@ static void on_read(int fd, short what, void *arg)
 	DEBUG("recv: len: %d, what: %d\n", len, what);
 	if (on_cmd((ser_cli_node *)arg, (uint8_t *)&buf, len) < 0) {
 		WARN("on cmd failed, negotiation failed");
-		sc_info_destroy((ser_cli_node *)arg);
 	}
 }
 
 /* 服务端监听回调 */
 static void on_listen(int listen, short what, void *arg)
 {
-	ipc_st *ipc = ipc_accept(sc_info_ipc(listen));
+	struct ser_cli_node *s_sc = (struct ser_cli_node *)arg;
+	ipc_st *ipc = ipc_accept(s_sc->ipc);
 	if (!ipc)
 		return;
 
@@ -145,7 +137,6 @@ static void on_listen(int listen, short what, void *arg)
 	}
 	
 	if (ev_register(ipc_fd(ipc), on_read, sc) < 0) {
-		sc_info_destroy(sc);
 		return;
 	}
 }
@@ -170,6 +161,9 @@ void event_register()
 	}
 
 	sc = sc_info_create(ipc, s_server);
+	if (s_server)	/* server监听sc无需删除，置为SUCCESS */
+		sc->status = SC_SUCCESS;
+
 	if (ev_register(ipc_fd(ipc), pevs->on_do, sc) < 0) {
 		ERROR("%s register failed", pevs->desc);
 		goto failed;
@@ -184,19 +178,21 @@ void event_register()
 	return;
 
 failed:
-	//destroy
 	exit(-1);
 }
 
 void sc_clean_timer(void *arg)
 {
-	static unordered_map<int, ser_cli_node*> s_sc_info_list;
 	uint64_t now = cur_time();
-
-	for (auto &v : s_sc_info_list) {
-		if (now > v.second->last_active_time + SC_NODE_TIMEOUT) {
-			DEBUG("destroy timeout tunnel: fd: %d", v.first);
-			sc_info_destroy(v.second);
+	
+	for (auto it = s_sc_info_list.begin(); it != s_sc_info_list.end();) {
+		if (it->second->status != SC_SUCCESS &&
+				now > it->second->last_active_time + SC_NODE_TIMEOUT) {
+			DEBUG("destroy timeout sc: %s", get_user_name(it->second->user));
+			sc_info_destroy(it->second);
+			it = s_sc_info_list.erase(it);
+		} else {
+			++it;
 		}
 	}
 

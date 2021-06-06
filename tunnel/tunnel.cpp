@@ -38,6 +38,10 @@ enc_input —— ev_base2 —— thread2 —— raw_output
             ev_base3 —— thread3 ——  raw_output
 */
 
+struct net_range_st {
+	uint32_t start;
+	uint32_t end; 
+};
 
 struct tunnel_manage_st {
 	int server;			/* 是否服务端 */
@@ -47,11 +51,14 @@ struct tunnel_manage_st {
 };
 
 struct tunnel_st {
-	int fd;							/* 加密流通信句柄 */
-	uint32_t seed;					/* 随机种子 */
-	struct crypto_st *crypt;		/* 加密器 */
-	char user[MAX_USER_LEN];		/* 用户名 */
-	uint64_t last_active;			/* 上次活跃时间 */
+	uint8_t  bad;
+	int fd;								/* 加密流通信句柄 */
+	uint32_t seed;						/* 随机种子 */
+	struct crypto_st *crypt;			/* 加密器 */
+	char user[MAX_USER_LEN];			/* 用户名 */
+	uint64_t last_input;				/* 上次输入时间 */
+	uint64_t last_output;				/* 上次输出时间 */
+	net_range_st* nets[MAX_NETS_CNT];	/* 对端子网 */
 };
 
 struct raw_data_st {
@@ -78,11 +85,6 @@ route tree
 
 */
 
-struct net_range_st {
-	uint32_t start;
-	uint32_t end; 
-};
-
 bool range_comp(net_range_st *lhs, net_range_st *rhs)
 {
 	char buf[20], buf2[20], buf3[20], buf4[20];
@@ -106,14 +108,13 @@ bool range_comp(net_range_st *lhs, net_range_st *rhs)
 
 typedef bool (*net_comp)(net_range_st *, net_range_st *);
 
-map<net_range_st *, tunnel_st *, net_comp> s_tunnel_list(range_comp);
-
 
 #define RING_BUF_SIZE		1024
 #define RAW_THREAD_MAX		8
+#define TUNNEL_TIMEOUT		10
 
 static struct tunnel_manage_st s_tunnel_manage;					/* 全局管理信息 */
-//static unordered_map<int, tunnel_st*> s_tunnel_list;			/* 隧道信息缓存表 */
+static map<net_range_st *, tunnel_st *, net_comp> s_tunnel_list(range_comp);	/* 隧道信息缓存表 */
 static struct ring_buf_st * s_raw_bufs[RAW_THREAD_MAX];			/* 内网数据包缓冲区 */
 static pthread_t s_raw_threads[RAW_THREAD_MAX];					/* 内网数据处理线程 */
 static sem_t s_raw_read_sems[RAW_THREAD_MAX];					/* 内网数据包缓冲可读信号量 */
@@ -142,7 +143,6 @@ static void tunnel_destroy(struct tunnel_st *tl)
 	if (tl->fd)
 		close(tl->fd);
 	
-	INFO("conn(%s) fd(%d) is broken", tl->user, tl->fd);
 	free(tl);
 }
 
@@ -175,6 +175,8 @@ static tunnel_st * tunnel_create(int fd, uint8_t *buf, int size)
 		return NULL;
 	
 	memcpy(tl->user, cmd->user, sizeof(tl->user));
+	tl->last_input = cur_time();
+	tl->last_output = tl->last_input;
 	tl->fd = fd;
 	tl->seed = cmd->seed;
 	tl->crypt = crypto_create(cmd->pubkey, cmd->klen);
@@ -184,7 +186,7 @@ static tunnel_st * tunnel_create(int fd, uint8_t *buf, int size)
 	if (ev_register(fd, enc_input, tl) < 0)
 		goto failed;
 	
-	for (i = 0; i < (int)(sizeof(cmd->nets) / sizeof(cmd->nets[0])); i++) {
+	for (i = 0; i < (int)(sizeof(cmd->nets) / sizeof(cmd->nets[0])) && i < MAX_NETS_CNT; i++) {
 		struct net_st *net = &(cmd->nets[i]);
 		if (!net->ip || !net->mask)
 			break;
@@ -199,6 +201,8 @@ static tunnel_st * tunnel_create(int fd, uint8_t *buf, int size)
 		DEBUG("true: add range: %s~%s", 
 			ip2str(nr->start, buf, 20),
 			ip2str(nr->end, buf2, 20));
+		
+		tl->nets[i] = nr;
 		s_tunnel_list[nr] = tl;
 	}
 	
@@ -241,7 +245,7 @@ static struct tunnel_st * select_tunnel_by_rawpkt(struct raw_data_st *pkt)
 		return NULL;
 	}
 
-	DUMP_HEX("raw pkt", pkt->data, pkt->len);
+	//DUMP_HEX("raw pkt", pkt->data, pkt->len);
 	return it->second;
 }
 
@@ -308,13 +312,15 @@ static void enc_input(int fd, short event, void *arg)
 		return; 
 	}
 
+	struct tunnel_st *tl = (struct tunnel_st *)arg;
+	tl->last_input = cur_time();
+
 	struct vpn_head_st *head = (struct vpn_head_st *)buf;
 	if (ret != (int)head->data_len + (int)sizeof(*head)) {
 		DEBUG("drop enc invalid size: ret: %d, expect: %d", ret, (int)head->data_len + (int)sizeof(*head));
 		return;
 	}
 
-	struct tunnel_st *tl = (struct tunnel_st *)arg;
 	uint32_t size = head->data_len;
 	if (crypto_decrypt(tl->crypt, head->data, &size) < 0) {
 		DEBUG("drop enc decryupt failed");
@@ -345,6 +351,8 @@ static int enc_output(struct tunnel_st *tl, struct raw_data_st *pkt)
 
 	head->data_len = size;
 	head->reserve = 0;
+
+	tl->last_output = cur_time();
 	
 	return send(tl->fd, buf, size + sizeof(struct vpn_head_st), 0);
 }
@@ -398,6 +406,41 @@ void conn_listen()
 	}
 }
 
+int tunnel_clean_one(uint64_t now)
+{
+	tunnel_st *tl = NULL;
+	uint8_t end = 1;
+
+	for (auto it = s_tunnel_list.begin(); it != s_tunnel_list.end(); ++it) {
+		if (now > it->second->last_input + TUNNEL_TIMEOUT) {
+			tl = it->second;
+
+			for (int i = 0; i < MAX_NETS_CNT && tl->nets[i]; i++) {
+				net_range_st *tmp = tl->nets[i];
+				s_tunnel_list.erase(tmp);
+				free(tmp);
+			}
+
+			DEBUG("destroy timeout tunnel: %s", tl->user);
+			tunnel_destroy(tl);
+
+			end = 0;
+			break;
+		}
+	}
+
+	return end;
+}
+
+void tunnel_clean_timer(void *arg)
+{
+	uint64_t now = cur_time();
+
+	while (tunnel_clean_one(now) == 0);
+
+	ev_timer(TUNNEL_TIMEOUT, tunnel_clean_timer, NULL);
+}
+
 int tunnel_init(int server, int nraw)
 {
 	const char *addr = get_tunnel_addr(server);
@@ -446,7 +489,7 @@ int tunnel_init(int server, int nraw)
 	s_tunnel_manage.raw_fd = tun_init(get_tun_ip());
 	if (s_tunnel_manage.raw_fd < 0) {
 		ipc_destroy(s_tunnel_manage.recv);
-		return -1;
+		goto failed;
 	}
 
 	/* 监听内网输入数据包, 要放在信号量初始化之后 */
@@ -454,6 +497,9 @@ int tunnel_init(int server, int nraw)
 		ERROR("register raw input event failed");
 		goto failed;
 	}
+
+	if (ev_timer(TUNNEL_TIMEOUT, tunnel_clean_timer, NULL) < 0)
+		goto failed;
 
 	return 0;
 
