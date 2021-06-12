@@ -38,15 +38,6 @@ struct cmd_auth_r_st {
 	uint8_t data[0];
 } VPN_PACKED;
 
-struct cmd_head_st {
-	uint16_t cmd;
-	uint16_t cmd_check;		/* ~cmd */
-	uint16_t old_len;
-	uint16_t data_len;
-	uint32_t reserve;
-	uint8_t data[0];
-} VPN_PACKED;
-
 
 typedef int (*do_cmd)(ser_cli_node *sc, uint8_t *data, uint16_t dlen);
 
@@ -59,19 +50,19 @@ static int on_cmd_auth_r(ser_cli_node *sc, uint8_t *data, uint16_t dlen);
 static int conn_notify(ser_cli_node *sc, net_st *nets, int netcnt);
 
 
-#define CMD_ENC_BEGIN CMD_AUTH_C
-#define CMD_ENC_END CMD_AUTH_R
+#define CMD_ENC_BEGIN PKT_AUTH_C
+#define CMD_ENC_END PKT_AUTH_R
 
 struct cmd_map_st {
 	int cmd;
 	do_cmd fn;
 };
 
-static struct cmd_map_st s_do_cmd[CMD_END] = {
-					{CMD_BEGIN,		NULL},
-					{CMD_KEY, 		on_cmd_key},
-					{CMD_AUTH_C, 	on_cmd_auth_c},
-					{CMD_AUTH_R, 	on_cmd_auth_r},
+static struct cmd_map_st s_do_cmd[PKT_END] = {
+					{PKT_BEGIN,		NULL},
+					{PKT_KEY, 		on_cmd_key},
+					{PKT_AUTH_C, 	on_cmd_auth_c},
+					{PKT_AUTH_R, 	on_cmd_auth_r},
 				};
 
 struct cmd_desc_st {
@@ -81,31 +72,24 @@ struct cmd_desc_st {
 
 static ipc_st *s_tunnel_ipc;
 
-static struct cmd_desc_st s_cmd_desc[] = {
-					{CMD_BEGIN,		"CMD_BEGIN"},
-					{CMD_KEY, 		"CMD_KEY"},
-					{CMD_AUTH_C, 	"CMD_AUTH_C"},
-					{CMD_AUTH_R, 	"CMD_AUTH_R"},
-					{CMD_END,		"CMD_END"}
-				};
 
 int on_cmd(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
 {
 	if (!sc || !data || !dlen)
 		return -1;
 	
-	struct cmd_head_st *hdr = (struct cmd_head_st *)data;
-	if (hdr->cmd <= CMD_BEGIN || hdr->cmd >= CMD_END ||
-			hdr->cmd != (uint16_t)~(hdr->cmd_check)) {
-		DEBUG("invalid cmd head: cmd: %u, cmd_check: %u", hdr->cmd, hdr->cmd_check);
+	struct vpn_head_st *hdr = (struct vpn_head_st *)data;
+	if (hdr->type <= PKT_BEGIN || hdr->type > PKT_AUTH_R ||
+			(uint16_t)~(hdr->type) != (hdr->_type)) {
+		DEBUG("invalid cmd head: cmd: %u, cmd_check: %u", hdr->type, hdr->_type);
 		return -1;
 	}
 
-	DEBUG("recv cmd: %s, old_len: %u, data_len: %u", s_cmd_desc[hdr->cmd].desc, hdr->old_len, hdr->data_len);
+	DEBUG("recv cmd: %s, old_len: %u, data_len: %u", pkt_type2str(hdr->type), hdr->old_len, hdr->data_len);
 
 	uint32_t size = hdr->data_len;
 
-	if (hdr->cmd >= CMD_ENC_BEGIN && hdr->cmd <= CMD_ENC_END) {
+	if (hdr->type >= CMD_ENC_BEGIN && hdr->type <= CMD_ENC_END) {
 		if (crypto_decrypt(sc->crypt, hdr->data, &size) < 0 ||
 				size != hdr->old_len) {
 			DEBUG("decrypt failed: size: %u, old_len: %u", size, hdr->old_len);
@@ -113,12 +97,12 @@ int on_cmd(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
 		}
 	}
 	
-	if (!s_do_cmd[hdr->cmd].fn) {
-		INFO("unknown cmd: %u", hdr->cmd);
+	if (!s_do_cmd[hdr->type].fn) {
+		INFO("unknown cmd: %u", hdr->type);
 		return -1;
 	}
 
-	return s_do_cmd[hdr->cmd].fn(sc, hdr->data, size);
+	return s_do_cmd[hdr->type].fn(sc, hdr->data, size);
 }
 
 
@@ -131,16 +115,16 @@ static int cmd_send(const ser_cli_node *sc, uint16_t cmd, uint8_t *buf, uint32_t
 {
 	int enc = (cmd >= CMD_ENC_BEGIN && cmd <= CMD_ENC_END) ? 1 : 0;
 	uint32_t dlen = enc ? crypto_encrypt_size(len) : len;
-	struct cmd_head_st *hdr;
+	struct vpn_head_st *hdr;
 
 	if (enc && !sc->crypt) {
 		DEBUG("need encrypt but no crypt handle !");
 		return -1;
 	}
 	
-	hdr = (struct cmd_head_st *)alloc_die(sizeof(struct cmd_head_st) + dlen);
-	hdr->cmd = cmd;
-	hdr->cmd_check = ~cmd;
+	hdr = (struct vpn_head_st *)alloc_die(sizeof(struct vpn_head_st) + dlen);
+	hdr->type = cmd;
+	hdr->_type = ~cmd;
 	hdr->old_len = len;
 	hdr->data_len = dlen;
 
@@ -156,13 +140,13 @@ static int cmd_send(const ser_cli_node *sc, uint16_t cmd, uint8_t *buf, uint32_t
 		}
 	}
 
-	if (ipc_send(sc->ipc, (uint8_t *)hdr, sizeof(struct cmd_head_st) + dlen) < 0) {
+	if (ipc_send(sc->ipc, (uint8_t *)hdr, sizeof(struct vpn_head_st) + dlen) < 0) {
 		DEBUG("data send failed");
 		free(hdr);
 		return -1;
 	}
 
-	DEBUG("send cmd: %s, old_len: %u, data_len: %u", s_cmd_desc[hdr->cmd].desc, hdr->old_len, hdr->data_len);
+	DEBUG("send cmd: %s, old_len: %u, data_len: %u", pkt_type2str(hdr->type), hdr->old_len, hdr->data_len);
 	free(hdr);
 	return 0;
 }
@@ -193,7 +177,7 @@ static int cmd_key_send(ser_cli_node *sc)
 	}
 	
 	DEBUG("cmd key send: version: %u, klen: %u", key->version, key->klen);
-	return cmd_send(sc, CMD_KEY, (uint8_t*)key, sizeof(struct cmd_key_st) + ksize);
+	return cmd_send(sc, PKT_KEY, (uint8_t*)key, sizeof(struct cmd_key_st) + ksize);
 
 failed:
 	dh_destroy(sc->dh);
@@ -250,7 +234,7 @@ static int cmd_auth_c_send(ser_cli_node *sc)
 	snprintf((char*)&ac.pwd, sizeof(ac.pwd), "%s", get_branch_pwd());
 	
 	DEBUG("cmd auth_c send: user: %s", ac.user);
-	return cmd_send(sc, CMD_AUTH_C, (uint8_t*)&ac, sizeof(struct cmd_auth_c_st));
+	return cmd_send(sc, PKT_AUTH_C, (uint8_t*)&ac, sizeof(struct cmd_auth_c_st));
 }
 
 static int on_cmd_auth_c(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
@@ -314,7 +298,7 @@ static int cmd_auth_r_send(ser_cli_node *sc, uint16_t code)
 	}
 	
 	DEBUG("cmd auth_r send: code: %u", ar->code);
-	return cmd_send(sc, CMD_AUTH_R, (uint8_t*)ar, sizeof(*ar) + ar->netcnt * sizeof(struct net_st));
+	return cmd_send(sc, PKT_AUTH_R, (uint8_t*)ar, sizeof(*ar) + ar->netcnt * sizeof(struct net_st));
 }
 
 static int on_cmd_auth_r(ser_cli_node *sc, uint8_t *data, uint16_t dlen)

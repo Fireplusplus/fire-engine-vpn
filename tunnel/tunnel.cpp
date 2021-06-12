@@ -73,27 +73,6 @@ struct raw_data_st {
 	uint8_t data[0];
 };
 
-enum PKT_TYPE {
-	PKT_DATA,
-	PKT_ECHO_REQ,
-	PKT_ECHO_REP,
-	PKT_TYPE_MAX
-};
-
-static const char * s_type2str[] = {
-									"PKT_DATA",
-									"PKT_ECHO_REQ",
-									"PKT_ECHO_REP",
-									"PKT_TYPE_MAX"
-								};
-
-struct vpn_head_st {
-	uint16_t old_len;
-	uint16_t data_len;
-	uint32_t pkt_type:4;						/* 内层数据类型 */	
-	uint8_t data[0];
-} VPN_PACKED;
-
 /*
 
 route tree
@@ -195,17 +174,17 @@ static int send_cmd_echo(struct tunnel_st *tl, uint8_t echo)
 
 void tunnel_on_cmd(struct tunnel_st *tl, struct vpn_head_st *head)
 {
-	if (head->pkt_type < PKT_TYPE_MAX)
-		DEBUG("recv cmd: %s", s_type2str[head->pkt_type]);
+	if (head->type < PKT_END)
+		DEBUG("recv cmd: %s", pkt_type2str(head->type));
 
-	switch (head->pkt_type) {
+	switch (head->type) {
 	case PKT_ECHO_REQ:
 		send_cmd_echo(tl, PKT_ECHO_REP);
 		break;
 	case PKT_ECHO_REP:
 		break;
 	default:
-		DEBUG("recv unknow cmd: %u", head->pkt_type);
+		DEBUG("recv unknow cmd: %u", head->type);
 		break;
 	};
 }
@@ -223,7 +202,8 @@ static int tunnel_pkt_send(struct tunnel_st *tl, uint8_t *data, uint16_t len, ui
 	}
 
 	head->data_len = size;
-	head->pkt_type = type;
+	head->type = type;
+	head->_type = ~type;
 
 	tl->last_output = cur_time();
 
@@ -239,9 +219,14 @@ static int tunnel_pkt_recv(struct tunnel_st *tl, uint8_t *buf, uint16_t size)
 
 	tl->last_input = cur_time();
 
-	struct vpn_head_st *head = (struct vpn_head_st *)buf;
+	struct vpn_head_st *head = (struct vpn_head_st *)buf;	
 	if (ret != (int)head->data_len + (int)sizeof(*head)) {
 		DEBUG("drop enc invalid size: ret: %d, expect: %d", ret, (int)head->data_len + (int)sizeof(*head));
+		return -1;
+	}
+
+	if ((uint16_t)~(head->type) != head->_type) {
+		DEBUG("drop enc invalid type: type: %u, _type: %u", head->type, head->_type);
 		return -1;
 	}
 
@@ -455,7 +440,7 @@ static void enc_input(int fd, short event, void *arg)
 	if (tunnel_pkt_recv(tl, buf, sizeof(buf)) < 0)
 		return;
 
-	if (head->pkt_type != PKT_DATA)
+	if (head->type != PKT_DATA)
 		tunnel_on_cmd(tl, head);
 	else
 		raw_output(tl, head->data, head->old_len);

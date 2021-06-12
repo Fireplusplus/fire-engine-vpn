@@ -26,21 +26,27 @@ struct cmd_tunnel_st {
 	uint8_t pubkey[0];
 };
 
-/*
-struct cmd_config_st {
-	uint16_t cnt;
+struct vpn_head_st {
+	uint16_t type;				/* 数据包类型 */
+	uint16_t _type;				/* ~type */
+	uint16_t old_len;			/* 内层数据加密前长度 */
+	uint16_t data_len;			/* 内层数据加密后长度 */
+	uint32_t reserve;
 	uint8_t data[0];
 } VPN_PACKED;
-*/
 
-enum {
-	CMD_BEGIN,
-	CMD_KEY,
-	CMD_AUTH_C,
-	CMD_AUTH_R,
-
-	CMD_CONN = 9,
-	CMD_END = 19
+enum pkt_type {
+	PKT_BEGIN,
+	PKT_KEY,
+	PKT_AUTH_C,
+	PKT_AUTH_R,
+	PKT_CONN,
+	PKT_DATA,
+	PKT_ECHO_REQ,
+	PKT_ECHO_REP,
+	PKT_END
 };
+
+const char * pkt_type2str(uint8_t type);
 
 #endif
