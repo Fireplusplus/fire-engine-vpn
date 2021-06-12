@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <signal.h>
 
 #include "log.h"
 #include "ev.h"
@@ -37,6 +38,8 @@ int main(int argc, char *argv[])
 	if (argc <= 1)
 		usage();
 	
+	signal(SIGPIPE, SIG_IGN);
+
 	int server;
 	int opt = getopt(argc, argv, "sc");
 	switch (opt) {

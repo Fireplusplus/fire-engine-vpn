@@ -78,9 +78,17 @@ int recv_fd(int fd, int *fd_recv, uint8_t *out, int *osize)
 	msg.msg_controllen = CONTROLLEN;
 
 	int len = recvmsg(fd, &msg, 0);
+	if (!len) {
+		DEBUG("recvmsg failed: %s", strerror(errno));
+		return 0;
+	}
+
 	if(len < 0) {
-		if (errno != EAGAIN)
+		if (errno != EAGAIN) {
 			DEBUG("recvmsg failed: %s", strerror(errno));
+			return 0;
+		}
+
 		return -1;
 	}
 
@@ -92,5 +100,5 @@ int recv_fd(int fd, int *fd_recv, uint8_t *out, int *osize)
 	*fd_recv = *(int*)CMSG_DATA(cmsg);
 	*osize = len;
 	DEBUG("recv fd: data: %p, len: %d", msg.msg_iov->iov_base, len);
-	return 0;
+	return 1;
 }

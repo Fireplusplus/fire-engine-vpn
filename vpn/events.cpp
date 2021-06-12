@@ -104,6 +104,9 @@ static void on_read(int fd, short what, void *arg)
 	int len = ipc_recv(ipc, buf, sizeof(buf));
 	
 	if (len <= 0) {
+		if (sc->status == SC_INIT)
+			return;
+		
 		DEBUG("invalid recv len: %d, fd: %d, reset status", len, fd);
 		sc->status = SC_INIT;
 		return;

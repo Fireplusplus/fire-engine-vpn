@@ -47,6 +47,7 @@ struct tunnel_manage_st {
 	int server;			/* 是否服务端 */
 	int raw_fd;			/* 原始输入句柄 */
 	int enc_fd;			/* 加密流句柄 */
+	ipc_st *listen;		/* 监听vpn_manage的句柄 */
 	ipc_st *recv;		/* 同vpn_manage的通信句柄 */
 };
 
@@ -387,18 +388,32 @@ static void * raw_consumer(void *arg)
 	}
 }
 
+static void reset_manage_handle_block()
+{
+	ipc_destroy(s_tunnel_manage.recv);
+	s_tunnel_manage.recv = NULL;
+
+	do {
+		s_tunnel_manage.recv = ipc_accept(s_tunnel_manage.listen);
+		sleep(1);
+	} while (!s_tunnel_manage.recv);
+}
+
 /* 接收vpn_managle发送的socket描述符, 建立隧道 */
 void conn_listen()
 {
 	uint8_t buf[BUF_SIZE];
-	int vpn_fd = ipc_fd(s_tunnel_manage.recv);
 	int new_fd;
 	
 	while (1) {
 		int size = sizeof(buf) / sizeof(buf[0]);
+		int vpn_fd = ipc_fd(s_tunnel_manage.recv);
 
-		if (recv_fd(vpn_fd, &new_fd, buf, &size) < 0) {
-			sleep(3);
+		int ret = recv_fd(vpn_fd, &new_fd, buf, &size);
+		if (ret < 0) {
+			continue;
+		} else if (!ret) {
+			reset_manage_handle_block();
 			continue;
 		}
 
@@ -446,16 +461,9 @@ int tunnel_init(int server, int nraw)
 	const char *addr = get_tunnel_addr(server);
 	remove(addr);
 
-	ipc_st *listen = ipc_listener_create(AF_UNIX, addr, 0);
-	if (!listen)
+	s_tunnel_manage.listen = ipc_listener_create(AF_UNIX, addr, 0);
+	if (!s_tunnel_manage.listen)
 		return -1;
-	
-	do {
-		s_tunnel_manage.recv = ipc_accept(listen);
-		sleep(3);
-	} while (!s_tunnel_manage.recv);
-	
-	ipc_destroy(listen);
 
 	s_tunnel_manage.server = server;
 
