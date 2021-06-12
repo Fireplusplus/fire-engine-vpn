@@ -51,8 +51,14 @@ struct tunnel_manage_st {
 	ipc_st *recv;		/* 同vpn_manage的通信句柄 */
 };
 
+enum tunnel_status {
+	TUNNEL_ALIVE,
+	TUNNEL_TIMEOUT,
+	TUNNEL_DEAD
+};
+
 struct tunnel_st {
-	uint8_t  bad;
+	uint8_t  status;
 	int fd;								/* 加密流通信句柄 */
 	uint32_t seed;						/* 随机种子 */
 	struct crypto_st *crypt;			/* 加密器 */
@@ -67,10 +73,24 @@ struct raw_data_st {
 	uint8_t data[0];
 };
 
+enum PKT_TYPE {
+	PKT_DATA,
+	PKT_ECHO_REQ,
+	PKT_ECHO_REP,
+	PKT_TYPE_MAX
+};
+
+static const char * s_type2str[] = {
+									"PKT_DATA",
+									"PKT_ECHO_REQ",
+									"PKT_ECHO_REP",
+									"PKT_TYPE_MAX"
+								};
+
 struct vpn_head_st {
 	uint16_t old_len;
 	uint16_t data_len;
-	uint32_t reserve;
+	uint32_t pkt_type:4;						/* 内层数据类型 */	
 	uint8_t data[0];
 } VPN_PACKED;
 
@@ -85,6 +105,51 @@ route tree
 0.0.0.0~63.255.255.255.255 64.0.0.1~126.255.255.255  127.0.0.1~191.255.255.255 192.0.0.0~255.255.255.255
 
 */
+
+bool range_comp(net_range_st *lhs, net_range_st *rhs);
+typedef bool (*net_comp)(net_range_st *, net_range_st *);
+
+
+#define RING_BUF_SIZE		1024
+#define RAW_THREAD_MAX		8
+#define TUNNEL_DEAD_TIMEOUT		10
+#define TUNNEL_NOTIFE_TIMEOUT	1
+#define TUNNEL_TIMER_INTERVAL	1
+
+static struct tunnel_manage_st s_tunnel_manage;					/* 全局管理信息 */
+static map<net_range_st *, tunnel_st *, net_comp> s_tunnel_list(range_comp);	/* 隧道信息缓存表 */
+static struct ring_buf_st * s_raw_bufs[RAW_THREAD_MAX];			/* 内网数据包缓冲区 */
+static pthread_t s_raw_threads[RAW_THREAD_MAX];					/* 内网数据处理线程 */
+static sem_t s_raw_read_sems[RAW_THREAD_MAX];					/* 内网数据包缓冲可读信号量 */
+static sem_t s_raw_write_sems[RAW_THREAD_MAX];					/* 内网数据包缓冲可写信号量 */
+static int s_raw_num = RAW_THREAD_MAX;							/* raw个数 */
+
+#define RAW_IDX_BY_TUNNEL(tl)	(((uint32_t)tl->seed) % s_raw_num)
+
+#define RAW_WAIT_READ_IDX(idx)	sem_wait(&s_raw_read_sems[idx])
+#define RAW_WAIT_WRITE_IDX(idx)	sem_wait(&s_raw_write_sems[idx])
+#define RAW_POST_READ_IDX(idx)	sem_post(&s_raw_read_sems[idx])
+#define RAW_POST_WRITE_IDX(idx)	sem_post(&s_raw_write_sems[idx])
+	
+
+static int tunnel_pkt_send(struct tunnel_st *tl, uint8_t *data, uint16_t len, uint8_t cmd);
+static int tunnel_pkt_recv(struct tunnel_st *tl, uint8_t *buf, uint16_t size);
+static void raw_input(int fd, short event, void *arg);
+static int raw_output(struct tunnel_st *tl, uint8_t *data, uint32_t size);
+static void enc_input(int fd, short event, void *arg);
+static int enc_output(struct tunnel_st *tl, struct raw_data_st *pkt);
+
+/* TODO: 添加定时清理 */
+static void tunnel_destroy(struct tunnel_st *tl)
+{
+	ev_unregister(tl->fd);
+	crypto_destroy(tl->crypt);
+	
+	if (tl->fd)
+		close(tl->fd);
+	
+	free(tl);
+}
 
 bool range_comp(net_range_st *lhs, net_range_st *rhs)
 {
@@ -107,46 +172,6 @@ bool range_comp(net_range_st *lhs, net_range_st *rhs)
 	return false;
 }
 
-typedef bool (*net_comp)(net_range_st *, net_range_st *);
-
-
-#define RING_BUF_SIZE		1024
-#define RAW_THREAD_MAX		8
-#define TUNNEL_TIMEOUT		10
-
-static struct tunnel_manage_st s_tunnel_manage;					/* 全局管理信息 */
-static map<net_range_st *, tunnel_st *, net_comp> s_tunnel_list(range_comp);	/* 隧道信息缓存表 */
-static struct ring_buf_st * s_raw_bufs[RAW_THREAD_MAX];			/* 内网数据包缓冲区 */
-static pthread_t s_raw_threads[RAW_THREAD_MAX];					/* 内网数据处理线程 */
-static sem_t s_raw_read_sems[RAW_THREAD_MAX];					/* 内网数据包缓冲可读信号量 */
-static sem_t s_raw_write_sems[RAW_THREAD_MAX];					/* 内网数据包缓冲可写信号量 */
-static int s_raw_num = RAW_THREAD_MAX;							/* raw个数 */
-
-#define RAW_IDX_BY_TUNNEL(tl)	(((uint32_t)tl->seed) % s_raw_num)
-
-#define RAW_WAIT_READ_IDX(idx)	sem_wait(&s_raw_read_sems[idx])
-#define RAW_WAIT_WRITE_IDX(idx)	sem_wait(&s_raw_write_sems[idx])
-#define RAW_POST_READ_IDX(idx)	sem_post(&s_raw_read_sems[idx])
-#define RAW_POST_WRITE_IDX(idx)	sem_post(&s_raw_write_sems[idx])
-	
-
-static void raw_input(int fd, short event, void *arg);
-static int raw_output(struct tunnel_st *tl, uint8_t *data, uint32_t size);
-static void enc_input(int fd, short event, void *arg);
-static int enc_output(struct tunnel_st *tl, struct raw_data_st *pkt);
-
-/* TODO: 添加定时清理 */
-static void tunnel_destroy(struct tunnel_st *tl)
-{
-	ev_unregister(tl->fd);
-	crypto_destroy(tl->crypt);
-	
-	if (tl->fd)
-		close(tl->fd);
-	
-	free(tl);
-}
-
 static net_range_st * net_range_create(net_st *net)
 {
 	assert(net);
@@ -160,6 +185,119 @@ static net_range_st * net_range_create(net_st *net)
 	nr->end = nr->start | (~(net->mask));
 
 	return nr;
+}
+
+static int send_cmd_echo(struct tunnel_st *tl, uint8_t echo)
+{
+	uint32_t seed = tl->seed;
+	return tunnel_pkt_send(tl, (uint8_t *)&seed, sizeof(seed), echo);
+}
+
+void tunnel_on_cmd(struct tunnel_st *tl, struct vpn_head_st *head)
+{
+	if (head->pkt_type < PKT_TYPE_MAX)
+		DEBUG("recv cmd: %s", s_type2str[head->pkt_type]);
+
+	switch (head->pkt_type) {
+	case PKT_ECHO_REQ:
+		send_cmd_echo(tl, PKT_ECHO_REP);
+		break;
+	case PKT_ECHO_REP:
+		break;
+	default:
+		DEBUG("recv unknow cmd: %u", head->pkt_type);
+		break;
+	};
+}
+
+static int tunnel_pkt_send(struct tunnel_st *tl, uint8_t *data, uint16_t len, uint8_t type)
+{
+	uint8_t buf[PKT_SIZE];
+	struct vpn_head_st *head = (struct vpn_head_st *)buf;
+	uint32_t size = sizeof(buf) - sizeof(*head);
+
+	head->old_len = len;
+	if (crypto_encrypt(tl->crypt, data, len, head->data, &size) < 0) {
+		DEBUG("drop enc failed");
+		return -1;
+	}
+
+	head->data_len = size;
+	head->pkt_type = type;
+
+	tl->last_output = cur_time();
+
+	return send(tl->fd, buf, size + sizeof(*head), 0);
+}
+
+static int tunnel_pkt_recv(struct tunnel_st *tl, uint8_t *buf, uint16_t size)
+{
+	int ret = read(tl->fd, buf, size);
+	if (ret <= 0) {
+		return -1; 
+	}
+
+	tl->last_input = cur_time();
+
+	struct vpn_head_st *head = (struct vpn_head_st *)buf;
+	if (ret != (int)head->data_len + (int)sizeof(*head)) {
+		DEBUG("drop enc invalid size: ret: %d, expect: %d", ret, (int)head->data_len + (int)sizeof(*head));
+		return -1;
+	}
+
+	uint32_t dsize = head->data_len;
+	if (crypto_decrypt(tl->crypt, head->data, &dsize) < 0) {
+		DEBUG("drop enc decryupt failed");
+		return -1;
+	}
+
+	if (head->old_len != dsize) {
+		DEBUG("drop enc invalid dec size: dsize: %u, expect: %u", dsize, head->old_len);
+		return -1;
+	}
+
+	return 0;
+}
+
+void tunnel_on_idle(void *arg)
+{
+	tunnel_st *tl = (tunnel_st *)arg;
+	uint64_t now = cur_time();
+	uint8_t timer = 1;
+	uint16_t not_time = TUNNEL_NOTIFE_TIMEOUT;
+	uint16_t out_time = TUNNEL_NOTIFE_TIMEOUT << 2;
+	uint16_t dead_time = TUNNEL_DEAD_TIMEOUT;
+
+	switch (tl->status) {
+	case TUNNEL_ALIVE:
+		if (now > tl->last_input + out_time ||
+				now > tl->last_output + out_time) {
+			tl->status = TUNNEL_TIMEOUT;
+		}
+		//no break
+	case TUNNEL_TIMEOUT:
+		if (!s_tunnel_manage.server) {
+			if (now > tl->last_input + (not_time + 1) || 
+					now > tl->last_output + not_time) {
+				send_cmd_echo(tl, PKT_ECHO_REQ);
+			}
+		}
+
+		if (now > tl->last_input + dead_time ||
+				now > tl->last_output + dead_time) {
+			WARN("tunnel %s is dead, timeout: %u", tl->user, dead_time);
+			tl->status = TUNNEL_DEAD;
+			timer = 0;
+		}
+
+		break;
+	default:
+		timer = 0;
+		break;
+	}
+
+	if (timer)
+		ev_timer(TUNNEL_TIMER_INTERVAL, tunnel_on_idle, tl);
 }
 
 static tunnel_st * tunnel_create(int fd, uint8_t *buf, int size)
@@ -176,6 +314,7 @@ static tunnel_st * tunnel_create(int fd, uint8_t *buf, int size)
 		return NULL;
 	
 	memcpy(tl->user, cmd->user, sizeof(tl->user));
+	tl->status = TUNNEL_ALIVE;
 	tl->last_input = cur_time();
 	tl->last_output = tl->last_input;
 	tl->fd = fd;
@@ -206,6 +345,8 @@ static tunnel_st * tunnel_create(int fd, uint8_t *buf, int size)
 		tl->nets[i] = nr;
 		s_tunnel_list[nr] = tl;
 	}
+
+	ev_timer(TUNNEL_TIMER_INTERVAL, tunnel_on_idle, tl);
 	
 	INFO("conn(%s) fd(%d) established success", tl->user, tl->fd);
 	return tl;
@@ -308,54 +449,21 @@ static int raw_output(struct tunnel_st *tl, uint8_t *data, uint32_t size)
 static void enc_input(int fd, short event, void *arg)
 {
 	uint8_t buf[PKT_SIZE];
-	int ret = read(fd, buf, sizeof(buf));
-	if (ret <= 0) {
-		return; 
-	}
-
-	struct tunnel_st *tl = (struct tunnel_st *)arg;
-	tl->last_input = cur_time();
-
 	struct vpn_head_st *head = (struct vpn_head_st *)buf;
-	if (ret != (int)head->data_len + (int)sizeof(*head)) {
-		DEBUG("drop enc invalid size: ret: %d, expect: %d", ret, (int)head->data_len + (int)sizeof(*head));
-		return;
-	}
+	struct tunnel_st *tl = (struct tunnel_st *)arg;
 
-	uint32_t size = head->data_len;
-	if (crypto_decrypt(tl->crypt, head->data, &size) < 0) {
-		DEBUG("drop enc decryupt failed");
+	if (tunnel_pkt_recv(tl, buf, sizeof(buf)) < 0)
 		return;
-	}
 
-	if (head->old_len != size) {
-		DEBUG("drop enc invalid dec size: size: %u, expect: %u", size, head->old_len);
-		return;
-	}
-
-	raw_output(tl, head->data, size);
+	if (head->pkt_type != PKT_DATA)
+		tunnel_on_cmd(tl, head);
+	else
+		raw_output(tl, head->data, head->old_len);
 }
 
 static int enc_output(struct tunnel_st *tl, struct raw_data_st *pkt)
 {
-	uint8_t buf[PKT_SIZE + sizeof(struct vpn_head_st)];
-	uint32_t size = sizeof(buf) - sizeof(struct vpn_head_st);
-
-	struct vpn_head_st *head = (struct vpn_head_st *)buf;
-
-	head->old_len = pkt->len;
-	if (crypto_encrypt(tl->crypt, pkt->data, head->old_len,
-					head->data, &size) < 0) {
-		DEBUG("drop enc failed");
-		return -1;
-	}
-
-	head->data_len = size;
-	head->reserve = 0;
-
-	tl->last_output = cur_time();
-	
-	return send(tl->fd, buf, size + sizeof(struct vpn_head_st), 0);
+	return tunnel_pkt_send(tl, pkt->data, pkt->len, PKT_DATA);
 }
 
 /* 消费内网数据: 封装-->加密-->发送 */
@@ -427,7 +535,7 @@ int tunnel_clean_one(uint64_t now)
 	uint8_t end = 1;
 
 	for (auto it = s_tunnel_list.begin(); it != s_tunnel_list.end(); ++it) {
-		if (now > it->second->last_input + TUNNEL_TIMEOUT) {
+		if (it->second->status == TUNNEL_DEAD) {
 			tl = it->second;
 
 			for (int i = 0; i < MAX_NETS_CNT && tl->nets[i]; i++) {
