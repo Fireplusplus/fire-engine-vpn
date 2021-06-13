@@ -74,38 +74,20 @@ struct cmd_desc_st {
 static ipc_st *s_tunnel_ipc;
 
 
-int on_cmd(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
+int on_cmd(ser_cli_node *sc, uint8_t *data)
 {
-	if (!sc || !data || !dlen)
-		return -1;
-	
 	struct vpn_head_st *hdr = (struct vpn_head_st *)data;
-	if (hdr->type <= PKT_BEGIN || hdr->type > PKT_AUTH_R ||
-			(uint16_t)~(hdr->type) != (hdr->_type)) {
-		DEBUG("invalid cmd head: cmd: %u, cmd_check: %u", hdr->type, hdr->_type);
+
+	if (!sc || !data)
 		return -1;
-	}
-
-	DEBUG("recv cmd: %s, old_len: %u, data_len: %u", pkt_type2str(hdr->type), hdr->old_len, hdr->data_len);
-
-	uint32_t size = hdr->data_len;
-
-	if (hdr->type >= CMD_ENC_BEGIN && hdr->type <= CMD_ENC_END) {
-		if (crypto_decrypt(sc->crypt, hdr->data, &size) < 0 ||
-				size != hdr->old_len) {
-			DEBUG("decrypt failed: size: %u, old_len: %u", size, hdr->old_len);
-			return -1;
-		}
-	}
 	
 	if (!s_do_cmd[hdr->type].fn) {
-		INFO("unknown cmd: %u", hdr->type);
+		INFO("undefined processing method: %s", pkt_type2str(hdr->type));
 		return -1;
 	}
 
-	return s_do_cmd[hdr->type].fn(sc, hdr->data, size);
+	return s_do_cmd[hdr->type].fn(sc, hdr->data, hdr->old_len);
 }
-
 
 int start_connect(ser_cli_node *sc)
 {
@@ -171,8 +153,9 @@ failed:
 
 static int cmd_send_remote(const ser_cli_node *sc, uint16_t cmd, uint8_t *buf, uint32_t len)
 {
-	return cmd_send(sc, cmd, buf, len, 1, 0);
+	return pkt_send(ipc_fd(sc->ipc), cmd, sc->crypt, buf, len);
 }
+
 /*
 static int cmd_send_local(const ser_cli_node *sc, uint16_t cmd, uint8_t *buf, uint32_t len)
 {

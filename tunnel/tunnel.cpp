@@ -162,9 +162,6 @@ static int send_cmd_echo(struct tunnel_st *tl, uint8_t echo)
 
 void tunnel_on_cmd(struct tunnel_st *tl, struct vpn_head_st *head)
 {
-	if (head->type < PKT_END)
-		DEBUG("recv cmd: %s", pkt_type2str(head->type));
-
 	switch (head->type) {
 	case PKT_ECHO_REQ:
 		send_cmd_echo(tl, PKT_ECHO_REP);

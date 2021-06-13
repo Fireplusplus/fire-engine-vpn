@@ -73,7 +73,7 @@ int pkt_recv(int fd, struct crypto_st *crypt, uint8_t *buf, uint16_t size)
 	
 	int ret = read(fd, buf, size);
 	if (ret <= 0) {
-		return -1; 
+		return ret; 
 	}
 	
 	if (ret < (int)hdr->data_len + (int)sizeof(*hdr)) {
@@ -113,5 +113,8 @@ int pkt_recv(int fd, struct crypto_st *crypt, uint8_t *buf, uint16_t size)
 		return -1;
 	}
 
-	return 0;
+	if (hdr->type != PKT_DATA)
+		DEBUG("recv cmd: %s", pkt_type2str(hdr->type));
+
+	return ret;
 }

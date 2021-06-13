@@ -98,16 +98,11 @@ static ipc_st * sc_info_ipc(int fd)
 static void on_read(int fd, short what, void *arg)
 {
 	ser_cli_node *sc = (ser_cli_node *)arg;
-	ipc_st *ipc = sc->ipc;
-	
 	char buf[65535];
-	int len = ipc_recv(ipc, buf, sizeof(buf));
-	
-	if (len <= 0) {
-		if (sc->status == SC_INIT)
-			return;
-		
-		DEBUG("invalid recv len: %d, fd: %d, reset status", len, fd);
+	int ret;
+
+	ret = pkt_recv(fd, sc->crypt, (uint8_t*)buf, sizeof(buf));
+	if (ret <= 0) {
 		sc->status = SC_INIT;
 		return;
 	}
@@ -117,9 +112,7 @@ static void on_read(int fd, short what, void *arg)
 	}
 
 	sc->last_active_time = cur_time();
-	
-	DEBUG("recv: len: %d, what: %d\n", len, what);
-	if (on_cmd((ser_cli_node *)arg, (uint8_t *)&buf, len) < 0) {
+	if (on_cmd((ser_cli_node *)arg, (uint8_t *)&buf) < 0) {
 		WARN("on cmd failed, negotiation failed");
 	}
 }
