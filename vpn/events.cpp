@@ -102,12 +102,17 @@ static void on_read(int fd, short what, void *arg)
 	int ret;
 
 	ret = pkt_recv(fd, sc->crypt, (uint8_t*)buf, sizeof(buf));
-	if (ret <= 0) {
+	if (ret < 0) {
+		return;
+	}
+
+	if (!ret) {
 		sc->status = SC_INIT;
 		return;
 	}
 
 	if (sc->status == SC_SUCCESS) {
+		ev_unregister(ipc_fd(sc->ipc));
 		return;
 	}
 

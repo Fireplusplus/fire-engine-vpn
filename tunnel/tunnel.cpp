@@ -177,7 +177,12 @@ void tunnel_on_cmd(struct tunnel_st *tl, struct vpn_head_st *head)
 static inline int tunnel_pkt_send(struct tunnel_st *tl, uint8_t *data, uint16_t len, uint8_t type)
 {
 	tl->last_output = cur_time();
-	return pkt_send(tl->fd, type, tl->crypt, data, len);
+	
+	int ret = pkt_send(tl->fd, type, tl->crypt, data, len);
+	if (!ret)
+		tl->status = TUNNEL_DEAD;
+	
+	return ret;
 }
 
 static inline int tunnel_pkt_recv(struct tunnel_st *tl, uint8_t *buf, uint16_t size)
@@ -185,6 +190,11 @@ static inline int tunnel_pkt_recv(struct tunnel_st *tl, uint8_t *buf, uint16_t s
 	int ret = pkt_recv(tl->fd, tl->crypt, buf, size);
 	if (ret < 0) {
 		return -1; 
+	}
+
+	if (!ret) {
+		tl->status = TUNNEL_DEAD;
+		return -1;
 	}
 
 	tl->last_input = cur_time();
@@ -451,7 +461,7 @@ void conn_listen()
 		int size = sizeof(buf) / sizeof(buf[0]);
 		int vpn_fd = ipc_fd(s_tunnel_manage.recv);
 
-		int ret = recv_fd(vpn_fd, &new_fd, buf, &size);
+		int ret = conn_recv(vpn_fd, NULL, buf, size, &new_fd);
 		if (ret < 0) {
 			continue;
 		} else if (!ret) {

@@ -94,9 +94,13 @@ int start_connect(ser_cli_node *sc)
 	return sc ? cmd_key_send(sc) : -1;
 }
 
-static inline int cmd_send_remote(const ser_cli_node *sc, uint16_t cmd, uint8_t *buf, uint32_t len)
+static inline int cmd_send_remote(ser_cli_node *sc, uint16_t cmd, uint8_t *buf, uint32_t len)
 {
-	return pkt_send(ipc_fd(sc->ipc), cmd, sc->crypt, buf, len);
+	int ret = pkt_send(ipc_fd(sc->ipc), cmd, sc->crypt, buf, len);
+	if (!ret)
+		sc->status = SC_INIT;
+	
+	return ret;
 }
 
 /*
@@ -326,8 +330,12 @@ static int conn_notify(ser_cli_node *sc, struct net_st *nets, int netcnt)
 	snprintf(tn->user, sizeof(tn->user), "%s", 
 		sc->user ? get_user_name(sc->user) : get_branch_user());
 
-	(void)conn_send(ipc_fd(s_tunnel_ipc), PKT_CONN_SET, sc->crypt, 
-		buf, sizeof(struct cmd_tunnel_st) + tn->klen, ipc_fd(sc->ipc));
+	if (conn_send(ipc_fd(s_tunnel_ipc), PKT_CONN_SET, sc->crypt, 
+		buf, sizeof(struct cmd_tunnel_st) + tn->klen, ipc_fd(sc->ipc)) < 0) {
+		DEBUG("tunnel handle broke");
+		reset_tunnel_handle_block(sc->server);
+		return -1;
+	}
 
 	INFO("notify tunnel manage to create tunnel");
 	sc->status = SC_SUCCESS;

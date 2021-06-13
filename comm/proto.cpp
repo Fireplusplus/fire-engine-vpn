@@ -3,6 +3,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <errno.h>
 
 #include "fd_send.h"
 #include "proto.h"
@@ -77,21 +78,20 @@ int pkt_send(int fd, uint8_t type, struct crypto_st *crypt, uint8_t *data, uint1
 	if (pack_pkt(type, crypt, data, len, buf, &size) < 0)
 		return -1;
 
-	return send(fd, buf, size, 0);
+	int ret = send(fd, buf, size, 0);
+	if (ret < 0 && errno == EPIPE)
+		return 0;
+	
+	return ret;
 }
 
-int pkt_recv(int fd, struct crypto_st *crypt, uint8_t *buf, uint16_t size)
+static inline int unpack_pkt(struct crypto_st *crypt, uint8_t *buf, uint16_t size)
 {
 	struct vpn_head_st *hdr = (struct vpn_head_st *)buf;
-	
-	int ret = read(fd, buf, size);
-	if (ret <= 0) {
-		return ret; 
-	}
-	
-	if (ret < (int)hdr->data_len + (int)sizeof(*hdr)) {
-		DEBUG("drop invalid size: type: %u, ret: %d, expect: %d", 
-				hdr->type, ret, (int)hdr->data_len + (int)sizeof(*hdr));
+
+	if (size < (int)hdr->data_len + (int)sizeof(*hdr)) {
+		DEBUG("drop invalid size: type: %u, size: %d, expect: %d", 
+				hdr->type, size, (int)hdr->data_len + (int)sizeof(*hdr));
 		return -1;
 	}
 
@@ -129,6 +129,19 @@ int pkt_recv(int fd, struct crypto_st *crypt, uint8_t *buf, uint16_t size)
 	if (hdr->type != PKT_DATA)
 		DEBUG("recv cmd: %s", pkt_type2str(hdr->type));
 
+	return 0;
+}
+
+int pkt_recv(int fd, struct crypto_st *crypt, uint8_t *buf, uint16_t size)
+{
+	int ret = read(fd, buf, size);
+	if (ret <= 0) {
+		return ret; 
+	}
+	
+	if (unpack_pkt(crypt, buf, ret) < 0)
+		return -1;
+
 	return ret;
 }
 
@@ -141,4 +154,17 @@ int conn_send(int fd, uint8_t type, struct crypto_st *crypt, uint8_t *data, uint
 		return -1;
 
 	return send_fd(fd, fd_conn, buf, size);
+}
+
+int conn_recv(int fd, struct crypto_st *crypt, uint8_t *buf, uint16_t size, int *fd_conn)
+{
+	int ret = recv_fd(fd, fd_conn, buf, (int*)&size);
+	if (ret <= 0) {
+		return ret; 
+	}
+	
+	if (unpack_pkt(crypt, buf, size) < 0)
+		return -1;
+
+	return ret;
 }
