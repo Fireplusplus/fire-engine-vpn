@@ -94,64 +94,7 @@ int start_connect(ser_cli_node *sc)
 	return sc ? cmd_key_send(sc) : -1;
 }
 
-/* 通知新连接给tunnel_manage */
-static inline int cmd_send(const ser_cli_node *sc, uint16_t cmd, 
-		uint8_t *buf, uint32_t len, uint8_t remote, uint8_t is_send_fd)
-{
-	int enc = (cmd >= CMD_ENC_BEGIN && cmd <= CMD_ENC_END) ? 1 : 0;
-	uint32_t dlen = enc ? crypto_encrypt_size(len) : len;
-	struct vpn_head_st *hdr;
-	ipc_st *dst = remote ? sc->ipc : s_tunnel_ipc;
-	int ret = 0;
-
-	if (enc && !sc->crypt) {
-		DEBUG("need encrypt but no crypt handle !");
-		return -1;
-	}
-	
-	hdr = (struct vpn_head_st *)alloc_die(sizeof(struct vpn_head_st) + dlen);
-	hdr->type = cmd;
-	hdr->_type = ~cmd;
-	hdr->old_len = len;
-	hdr->data_len = dlen;
-
-	if (!enc) {
-		memcpy(hdr->data, buf, len);
-	} else {
-		uint32_t olen = dlen;
-		if (crypto_encrypt(sc->crypt, buf, len, hdr->data, &olen) < 0
-				|| olen != dlen) {
-			DEBUG("encrypt failed: olen: %u, dlen: %u", olen, dlen);
-			free(hdr);
-			return -1;
-		}
-	}
-
-	if (is_send_fd) {
-		assert(dst == s_tunnel_ipc);
-
-		/* 发送文件描述符到tunnel_manage */
-		if (send_fd(ipc_fd(dst), ipc_fd(sc->ipc), (uint8_t *)hdr, sizeof(*hdr) + dlen) < 0) {
-			reset_tunnel_handle_block(sc->server);
-			ret = -1;
-			goto failed;
-		}
-	} else {
-		/* 发生命令到对端vpn */
-		if (ipc_send(dst, (uint8_t *)hdr, sizeof(*hdr) + dlen) < 0) {
-			ret = -1;
-			goto failed;
-		}
-	}
-
-failed:
-	DEBUG("send cmd %s: %s, old_len: %u, data_len: %u", ret ? "failed" : "success",
-			pkt_type2str(hdr->type), hdr->old_len, hdr->data_len);
-	free(hdr);
-	return ret;
-}
-
-static int cmd_send_remote(const ser_cli_node *sc, uint16_t cmd, uint8_t *buf, uint32_t len)
+static inline int cmd_send_remote(const ser_cli_node *sc, uint16_t cmd, uint8_t *buf, uint32_t len)
 {
 	return pkt_send(ipc_fd(sc->ipc), cmd, sc->crypt, buf, len);
 }
@@ -161,11 +104,6 @@ static int cmd_send_local(const ser_cli_node *sc, uint16_t cmd, uint8_t *buf, ui
 {
 	return cmd_send(sc, cmd, buf, len, 0, 0);
 }*/
-
-static int fd_send_local(const ser_cli_node *sc, uint16_t cmd, uint8_t *buf, uint32_t len)
-{
-	return cmd_send(sc, cmd, buf, len, 0, 1);
-}
 
 static int cmd_key_send(ser_cli_node *sc)
 {
@@ -388,7 +326,8 @@ static int conn_notify(ser_cli_node *sc, struct net_st *nets, int netcnt)
 	snprintf(tn->user, sizeof(tn->user), "%s", 
 		sc->user ? get_user_name(sc->user) : get_branch_user());
 
-	(void)fd_send_local(sc, PKT_CONN_SET, buf, sizeof(struct cmd_tunnel_st) + tn->klen);
+	(void)conn_send(ipc_fd(s_tunnel_ipc), PKT_CONN_SET, sc->crypt, 
+		buf, sizeof(struct cmd_tunnel_st) + tn->klen, ipc_fd(sc->ipc));
 
 	INFO("notify tunnel manage to create tunnel");
 	sc->status = SC_SUCCESS;

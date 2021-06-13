@@ -56,4 +56,6 @@ const char * pkt_type2str(uint8_t type);
 int pkt_send(int fd, uint8_t type, struct crypto_st *crypt, uint8_t *data, uint16_t len);
 int pkt_recv(int fd, struct crypto_st *crypt, uint8_t *buf, uint16_t size);
 
+int conn_send(int fd, uint8_t type, struct crypto_st *crypt, uint8_t *data, uint16_t len, int fd_conn);
+
 #endif

@@ -4,6 +4,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include "fd_send.h"
 #include "proto.h"
 #include "log.h"
 
@@ -39,11 +40,11 @@ const char * pkt_type2str(uint8_t type)
 	return s_type2str[type];
 }
 
-int pkt_send(int fd, uint8_t type, struct crypto_st *crypt, uint8_t *data, uint16_t len)
+static inline int pack_pkt(uint8_t type, struct crypto_st *crypt, 
+				uint8_t *data, uint16_t len, uint8_t *buf, uint32_t *size)
 {
-	uint8_t buf[PKT_SIZE];
 	struct vpn_head_st *hdr = (struct vpn_head_st *)buf;
-	uint32_t size = sizeof(buf) - sizeof(*hdr);
+	uint32_t dsize = *size - sizeof(*hdr);
 	uint8_t enc = s_type2enc[type];
 
 	if (!enc) {
@@ -52,11 +53,11 @@ int pkt_send(int fd, uint8_t type, struct crypto_st *crypt, uint8_t *data, uint1
 		hdr->enc = 0;
 		hdr->data_len = len;
 	} else {
-		if (crypto_encrypt(crypt, data, len, hdr->data, &size) < 0)
+		if (crypto_encrypt(crypt, data, len, hdr->data, &dsize) < 0)
 			return -1;
 
 		hdr->enc = 1;
-		hdr->data_len = size;
+		hdr->data_len = dsize;
 	}
 
 	hdr->old_len = len;
@@ -64,7 +65,19 @@ int pkt_send(int fd, uint8_t type, struct crypto_st *crypt, uint8_t *data, uint1
 	hdr->_type = ~type;
 	hdr->reserve = 0;
 
-	return send(fd, buf, hdr->data_len + sizeof(*hdr), 0);
+	*size = hdr->data_len + sizeof(*hdr);
+	return 0;
+}
+
+int pkt_send(int fd, uint8_t type, struct crypto_st *crypt, uint8_t *data, uint16_t len)
+{
+	uint8_t buf[PKT_SIZE];
+	uint32_t size = sizeof(buf);
+
+	if (pack_pkt(type, crypt, data, len, buf, &size) < 0)
+		return -1;
+
+	return send(fd, buf, size, 0);
 }
 
 int pkt_recv(int fd, struct crypto_st *crypt, uint8_t *buf, uint16_t size)
@@ -117,4 +130,15 @@ int pkt_recv(int fd, struct crypto_st *crypt, uint8_t *buf, uint16_t size)
 		DEBUG("recv cmd: %s", pkt_type2str(hdr->type));
 
 	return ret;
+}
+
+int conn_send(int fd, uint8_t type, struct crypto_st *crypt, uint8_t *data, uint16_t len, int fd_conn)
+{
+	uint8_t buf[PKT_SIZE];
+	uint32_t size = sizeof(buf);
+
+	if (pack_pkt(type, crypt, data, len, buf, &size) < 0)
+		return -1;
+
+	return send_fd(fd, fd_conn, buf, size);
 }
