@@ -48,6 +48,7 @@ static int on_cmd_key(ser_cli_node *sc, uint8_t *data, uint16_t dlen);
 static int on_cmd_auth_c(ser_cli_node *sc, uint8_t *data, uint16_t dlen);
 static int on_cmd_auth_r(ser_cli_node *sc, uint8_t *data, uint16_t dlen);
 static int conn_notify(ser_cli_node *sc, net_st *nets, int netcnt);
+static void reset_tunnel_handle_block(int server);
 
 
 #define CMD_ENC_BEGIN PKT_AUTH_C
@@ -111,11 +112,15 @@ int start_connect(ser_cli_node *sc)
 	return sc ? cmd_key_send(sc) : -1;
 }
 
-static int cmd_send(const ser_cli_node *sc, uint16_t cmd, uint8_t *buf, uint32_t len)
+/* 通知新连接给tunnel_manage */
+static inline int cmd_send(const ser_cli_node *sc, uint16_t cmd, 
+		uint8_t *buf, uint32_t len, uint8_t remote, uint8_t is_send_fd)
 {
 	int enc = (cmd >= CMD_ENC_BEGIN && cmd <= CMD_ENC_END) ? 1 : 0;
 	uint32_t dlen = enc ? crypto_encrypt_size(len) : len;
 	struct vpn_head_st *hdr;
+	ipc_st *dst = remote ? sc->ipc : s_tunnel_ipc;
+	int ret = 0;
 
 	if (enc && !sc->crypt) {
 		DEBUG("need encrypt but no crypt handle !");
@@ -140,15 +145,43 @@ static int cmd_send(const ser_cli_node *sc, uint16_t cmd, uint8_t *buf, uint32_t
 		}
 	}
 
-	if (ipc_send(sc->ipc, (uint8_t *)hdr, sizeof(struct vpn_head_st) + dlen) < 0) {
-		DEBUG("data send failed");
-		free(hdr);
-		return -1;
+	if (is_send_fd) {
+		assert(dst == s_tunnel_ipc);
+
+		/* 发送文件描述符到tunnel_manage */
+		if (send_fd(ipc_fd(dst), ipc_fd(sc->ipc), (uint8_t *)hdr, sizeof(*hdr) + dlen) < 0) {
+			reset_tunnel_handle_block(sc->server);
+			ret = -1;
+			goto failed;
+		}
+	} else {
+		/* 发生命令到对端vpn */
+		if (ipc_send(dst, (uint8_t *)hdr, sizeof(*hdr) + dlen) < 0) {
+			ret = -1;
+			goto failed;
+		}
 	}
 
-	DEBUG("send cmd: %s, old_len: %u, data_len: %u", pkt_type2str(hdr->type), hdr->old_len, hdr->data_len);
+failed:
+	DEBUG("send cmd %s: %s, old_len: %u, data_len: %u", ret ? "failed" : "success",
+			pkt_type2str(hdr->type), hdr->old_len, hdr->data_len);
 	free(hdr);
-	return 0;
+	return ret;
+}
+
+static int cmd_send_remote(const ser_cli_node *sc, uint16_t cmd, uint8_t *buf, uint32_t len)
+{
+	return cmd_send(sc, cmd, buf, len, 1, 0);
+}
+/*
+static int cmd_send_local(const ser_cli_node *sc, uint16_t cmd, uint8_t *buf, uint32_t len)
+{
+	return cmd_send(sc, cmd, buf, len, 0, 0);
+}*/
+
+static int fd_send_local(const ser_cli_node *sc, uint16_t cmd, uint8_t *buf, uint32_t len)
+{
+	return cmd_send(sc, cmd, buf, len, 0, 1);
 }
 
 static int cmd_key_send(ser_cli_node *sc)
@@ -177,7 +210,7 @@ static int cmd_key_send(ser_cli_node *sc)
 	}
 	
 	DEBUG("cmd key send: version: %u, klen: %u", key->version, key->klen);
-	return cmd_send(sc, PKT_KEY, (uint8_t*)key, sizeof(struct cmd_key_st) + ksize);
+	return cmd_send_remote(sc, PKT_KEY, (uint8_t*)key, sizeof(struct cmd_key_st) + ksize);
 
 failed:
 	dh_destroy(sc->dh);
@@ -234,7 +267,7 @@ static int cmd_auth_c_send(ser_cli_node *sc)
 	snprintf((char*)&ac.pwd, sizeof(ac.pwd), "%s", get_branch_pwd());
 	
 	DEBUG("cmd auth_c send: user: %s", ac.user);
-	return cmd_send(sc, PKT_AUTH_C, (uint8_t*)&ac, sizeof(struct cmd_auth_c_st));
+	return cmd_send_remote(sc, PKT_AUTH_C, (uint8_t*)&ac, sizeof(struct cmd_auth_c_st));
 }
 
 static int on_cmd_auth_c(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
@@ -298,7 +331,7 @@ static int cmd_auth_r_send(ser_cli_node *sc, uint16_t code)
 	}
 	
 	DEBUG("cmd auth_r send: code: %u", ar->code);
-	return cmd_send(sc, PKT_AUTH_R, (uint8_t*)ar, sizeof(*ar) + ar->netcnt * sizeof(struct net_st));
+	return cmd_send_remote(sc, PKT_AUTH_R, (uint8_t*)ar, sizeof(*ar) + ar->netcnt * sizeof(struct net_st));
 }
 
 static int on_cmd_auth_r(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
@@ -372,16 +405,10 @@ static int conn_notify(ser_cli_node *sc, struct net_st *nets, int netcnt)
 	snprintf(tn->user, sizeof(tn->user), "%s", 
 		sc->user ? get_user_name(sc->user) : get_branch_user());
 
-	/* 发送文件描述符到tunnel_manage */
-	if (send_fd(ipc_fd(s_tunnel_ipc), ipc_fd(sc->ipc), 
-			buf, sizeof(struct cmd_tunnel_st) + tn->klen) < 0) {
-		reset_tunnel_handle_block(sc->server);
-		return -1;
-	}
+	(void)fd_send_local(sc, PKT_CONN_SET, buf, sizeof(struct cmd_tunnel_st) + tn->klen);
 
 	INFO("notify tunnel manage to create tunnel");
 	sc->status = SC_SUCCESS;
-
 	return 0;
 }
 

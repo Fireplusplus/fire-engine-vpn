@@ -135,19 +135,9 @@ bool range_comp(net_range_st *lhs, net_range_st *rhs)
 	char buf[20], buf2[20], buf3[20], buf4[20];
 
 	if (lhs->start < rhs->start && lhs->end < rhs->end) {
-		DEBUG("true: lhs: %s~%s, rhs: %s~%s", 
-			ip2str(lhs->start, buf, 20),
-			ip2str(lhs->end, buf2, 20),
-			ip2str(rhs->start, buf3, 20),
-			ip2str(rhs->end, buf4, 20));
 		return true;
 	}
 	
-	DEBUG("false: lhs: %s~%s, rhs: %s~%s", 
-			ip2str(lhs->start, buf, 20),
-			ip2str(lhs->end, buf2, 20),
-			ip2str(rhs->start, buf3, 20),
-			ip2str(rhs->end, buf4, 20));
 	return false;
 }
 
@@ -287,9 +277,11 @@ void tunnel_on_idle(void *arg)
 
 static tunnel_st * tunnel_create(int fd, uint8_t *buf, int size)
 {
-	struct cmd_tunnel_st *cmd = (struct cmd_tunnel_st *)buf;
-	if (!buf || size != (int)(cmd->klen + sizeof(struct cmd_tunnel_st))) {
-		DEBUG("invalid tunnel cmd size: %d, expect: %lu", size, cmd->klen + sizeof(struct cmd_tunnel_st));
+	struct vpn_head_st *hdr = (struct vpn_head_st *)buf;
+	struct cmd_tunnel_st *cmd = (struct cmd_tunnel_st *)hdr->data;
+	if (!buf || size < (int)(sizeof(*hdr) + hdr->data_len) ||
+		hdr->data_len != (int)(cmd->klen + sizeof(struct cmd_tunnel_st))) {
+		DEBUG("invalid tunnel cmd size: %d, data_len: %u, expect: %lu", size, hdr->data_len, cmd->klen + sizeof(struct cmd_tunnel_st));
 		return NULL;
 	}
 
