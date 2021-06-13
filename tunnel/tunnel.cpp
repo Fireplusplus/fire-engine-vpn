@@ -111,8 +111,8 @@ static int s_raw_num = RAW_THREAD_MAX;							/* raw个数 */
 #define RAW_POST_WRITE_IDX(idx)	sem_post(&s_raw_write_sems[idx])
 	
 
-static int tunnel_pkt_send(struct tunnel_st *tl, uint8_t *data, uint16_t len, uint8_t cmd);
-static int tunnel_pkt_recv(struct tunnel_st *tl, uint8_t *buf, uint16_t size);
+static inline int tunnel_pkt_send(struct tunnel_st *tl, uint8_t *data, uint16_t len, uint8_t type);
+static inline int tunnel_pkt_recv(struct tunnel_st *tl, uint8_t *buf, uint16_t size);
 static void raw_input(int fd, short event, void *arg);
 static int raw_output(struct tunnel_st *tl, uint8_t *data, uint32_t size);
 static void enc_input(int fd, short event, void *arg);
@@ -132,8 +132,6 @@ static void tunnel_destroy(struct tunnel_st *tl)
 
 bool range_comp(net_range_st *lhs, net_range_st *rhs)
 {
-	char buf[20], buf2[20], buf3[20], buf4[20];
-
 	if (lhs->start < rhs->start && lhs->end < rhs->end) {
 		return true;
 	}
@@ -179,58 +177,20 @@ void tunnel_on_cmd(struct tunnel_st *tl, struct vpn_head_st *head)
 	};
 }
 
-static int tunnel_pkt_send(struct tunnel_st *tl, uint8_t *data, uint16_t len, uint8_t type)
+static inline int tunnel_pkt_send(struct tunnel_st *tl, uint8_t *data, uint16_t len, uint8_t type)
 {
-	uint8_t buf[PKT_SIZE];
-	struct vpn_head_st *head = (struct vpn_head_st *)buf;
-	uint32_t size = sizeof(buf) - sizeof(*head);
-
-	head->old_len = len;
-	if (crypto_encrypt(tl->crypt, data, len, head->data, &size) < 0) {
-		DEBUG("drop enc failed");
-		return -1;
-	}
-
-	head->data_len = size;
-	head->type = type;
-	head->_type = ~type;
-
 	tl->last_output = cur_time();
-
-	return send(tl->fd, buf, size + sizeof(*head), 0);
+	return pkt_send(tl->fd, type, tl->crypt, data, len);
 }
 
-static int tunnel_pkt_recv(struct tunnel_st *tl, uint8_t *buf, uint16_t size)
+static inline int tunnel_pkt_recv(struct tunnel_st *tl, uint8_t *buf, uint16_t size)
 {
-	int ret = read(tl->fd, buf, size);
-	if (ret <= 0) {
+	int ret = pkt_recv(tl->fd, tl->crypt, buf, size);
+	if (ret < 0) {
 		return -1; 
 	}
 
 	tl->last_input = cur_time();
-
-	struct vpn_head_st *head = (struct vpn_head_st *)buf;	
-	if (ret != (int)head->data_len + (int)sizeof(*head)) {
-		DEBUG("drop enc invalid size: ret: %d, expect: %d", ret, (int)head->data_len + (int)sizeof(*head));
-		return -1;
-	}
-
-	if ((uint16_t)~(head->type) != head->_type) {
-		DEBUG("drop enc invalid type: type: %u, _type: %u", head->type, head->_type);
-		return -1;
-	}
-
-	uint32_t dsize = head->data_len;
-	if (crypto_decrypt(tl->crypt, head->data, &dsize) < 0) {
-		DEBUG("drop enc decryupt failed");
-		return -1;
-	}
-
-	if (head->old_len != dsize) {
-		DEBUG("drop enc invalid dec size: dsize: %u, expect: %u", dsize, head->old_len);
-		return -1;
-	}
-
 	return 0;
 }
 

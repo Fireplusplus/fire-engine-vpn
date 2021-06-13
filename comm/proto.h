@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#include "crypto.h"
+
 #define PKT_SIZE	65535
 #define BUF_SIZE	20480
 #define MAX_USER_LEN	50
@@ -31,7 +33,8 @@ struct vpn_head_st {
 	uint16_t _type;				/* ~type */
 	uint16_t old_len;			/* 内层数据加密前长度 */
 	uint16_t data_len;			/* 内层数据加密后长度 */
-	uint32_t reserve;
+	uint16_t enc:1;				/* 是否加密 */
+	uint16_t reserve;
 	uint8_t data[0];
 } VPN_PACKED;
 
@@ -49,5 +52,8 @@ enum pkt_type {
 };
 
 const char * pkt_type2str(uint8_t type);
+
+int pkt_send(int fd, uint8_t type, struct crypto_st *crypt, uint8_t *data, uint16_t len);
+int pkt_recv(int fd, struct crypto_st *crypt, uint8_t *buf, uint16_t size);
 
 #endif
