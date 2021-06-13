@@ -330,7 +330,7 @@ static int conn_notify(ser_cli_node *sc, struct net_st *nets, int netcnt)
 	snprintf(tn->user, sizeof(tn->user), "%s", 
 		sc->user ? get_user_name(sc->user) : get_branch_user());
 
-	if (conn_send(ipc_fd(s_tunnel_ipc), PKT_CONN_SET, sc->crypt, 
+	if (msg_send(ipc_fd(s_tunnel_ipc), PKT_CONN_SET, sc->crypt, 
 		buf, sizeof(struct cmd_tunnel_st) + tn->klen, ipc_fd(sc->ipc)) < 0) {
 		DEBUG("tunnel handle broke");
 		reset_tunnel_handle_block(sc->server);
@@ -339,6 +339,7 @@ static int conn_notify(ser_cli_node *sc, struct net_st *nets, int netcnt)
 
 	INFO("notify tunnel manage to create tunnel");
 	sc->status = SC_SUCCESS;
+	ev_unregister(ipc_fd(sc->ipc));
 	return 0;
 }
 

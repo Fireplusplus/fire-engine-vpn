@@ -111,10 +111,8 @@ static void on_read(int fd, short what, void *arg)
 		return;
 	}
 
-	if (sc->status == SC_SUCCESS) {
-		ev_unregister(ipc_fd(sc->ipc));
+	if (sc->status == SC_SUCCESS)
 		return;
-	}
 
 	sc->last_active_time = cur_time();
 	if (on_cmd((ser_cli_node *)arg, (uint8_t *)&buf) < 0) {

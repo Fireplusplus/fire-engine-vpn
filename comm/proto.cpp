@@ -67,6 +67,10 @@ static inline int pack_pkt(uint8_t type, struct crypto_st *crypt,
 	hdr->reserve = 0;
 
 	*size = hdr->data_len + sizeof(*hdr);
+
+	if (hdr->type != PKT_DATA)
+		DEBUG("recv cmd: %s", pkt_type2str(hdr->type));
+	
 	return 0;
 }
 
@@ -145,7 +149,7 @@ int pkt_recv(int fd, struct crypto_st *crypt, uint8_t *buf, uint16_t size)
 	return ret;
 }
 
-int conn_send(int fd, uint8_t type, struct crypto_st *crypt, uint8_t *data, uint16_t len, int fd_conn)
+int msg_send(int fd, uint8_t type, struct crypto_st *crypt, uint8_t *data, uint16_t len, int fd_conn)
 {
 	uint8_t buf[PKT_SIZE];
 	uint32_t size = sizeof(buf);
@@ -156,7 +160,7 @@ int conn_send(int fd, uint8_t type, struct crypto_st *crypt, uint8_t *data, uint
 	return send_fd(fd, fd_conn, buf, size);
 }
 
-int conn_recv(int fd, struct crypto_st *crypt, uint8_t *buf, uint16_t size, int *fd_conn)
+int msg_recv(int fd, struct crypto_st *crypt, uint8_t *buf, uint16_t size, int *fd_conn)
 {
 	int ret = recv_fd(fd, fd_conn, buf, (int*)&size);
 	if (ret <= 0) {

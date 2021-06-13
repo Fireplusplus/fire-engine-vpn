@@ -63,7 +63,7 @@ int main(int argc, char *argv[])
 	if (tunnel_init(server, EV_THREADS_NUM) < 0)
 		return -1;
 	
-	conn_listen();
+	vpn_managle_listen();
 	
 	INFO("tunnel manage run over !\n");
 	return 0;

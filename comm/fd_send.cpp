@@ -19,7 +19,7 @@
  */
 int send_fd(int fd, int fd_send, uint8_t *data, int len)
 {
-	if (fd < 0 || fd_send < 0 || len < 0) {
+	if (fd < 0 || len < 0) {
 		DEBUG("invalid param: fd: %d, fd_send: %d, len: %d", fd, fd_send, len);
 		return -1;
 	}
@@ -30,28 +30,38 @@ int send_fd(int fd, int fd_send, uint8_t *data, int len)
 	}
 
 	struct iovec iov[1] = {{data, (size_t)len}};
-	uint8_t buf[CONTROLLEN];
+	uint8_t buf[1024] = {0};
 	struct cmsghdr *cmsg = (struct cmsghdr *)buf;
 	struct msghdr msg;
 
 	memset(&msg, 0, sizeof(msg));
 	cmsg->cmsg_level = SOL_SOCKET;
-	cmsg->cmsg_type = SCM_RIGHTS;
-	cmsg->cmsg_len = CONTROLLEN;
-	
+
 	msg.msg_iov = iov;
 	msg.msg_iovlen  = sizeof(iov) / sizeof(iov[0]);
-	msg.msg_control = cmsg;
-	msg.msg_controllen = CONTROLLEN;
 
-	*(int*)CMSG_DATA(cmsg) = fd_send;
+	if (fd_send < 0) {
+		DEBUG("send without fd: iov: data: %p, len: %d", 
+				msg.msg_iov->iov_base, (int)msg.msg_iov->iov_len);
+	} else {
+		cmsg->cmsg_type = SCM_RIGHTS;
+		cmsg->cmsg_len = CONTROLLEN;
+
+		msg.msg_control = cmsg;
+		msg.msg_controllen = CONTROLLEN;
+
+		*(int*)CMSG_DATA(cmsg) = fd_send;
+
+		DEBUG("send with fd(%d): iov: data: %p, len: %d", fd_send, 
+				msg.msg_iov->iov_base, (int)msg.msg_iov->iov_len);
+	}
 
 	if (sendmsg(fd, &msg, 0) < 0) {
 		DEBUG("sendmsg failed: %s", strerror(errno));
 		return -1;
 	}
 
-	DEBUG("send fd: iov: data: %p, len: %d", msg.msg_iov->iov_base, (int)msg.msg_iov->iov_len);
+	
 	return 0;
 }
 
@@ -92,13 +102,14 @@ int recv_fd(int fd, int *fd_recv, uint8_t *out, int *osize)
 		return -1;
 	}
 
-	if(msg.msg_controllen != CONTROLLEN) {
-		DEBUG("invalid control len: %d, expect: %lu", (int)msg.msg_controllen, CONTROLLEN);
-		return -1;
+	if(msg.msg_controllen == CONTROLLEN) {
+		DEBUG("recv with fd(%d)", *fd_recv);
+		*fd_recv = *(int*)CMSG_DATA(cmsg);
+	} else {
+		DEBUG("recv without fd");
+		*fd_recv = -1;
 	}
 	
-	*fd_recv = *(int*)CMSG_DATA(cmsg);
 	*osize = len;
-	DEBUG("recv fd: data: %p, len: %d", msg.msg_iov->iov_base, len);
 	return 1;
 }

@@ -117,6 +117,7 @@ static void raw_input(int fd, short event, void *arg);
 static int raw_output(struct tunnel_st *tl, uint8_t *data, uint32_t size);
 static void enc_input(int fd, short event, void *arg);
 static int enc_output(struct tunnel_st *tl, struct raw_data_st *pkt);
+static tunnel_st * tunnel_create(int fd, struct vpn_head_st *hdr);
 
 /* TODO: 添加定时清理 */
 static void tunnel_destroy(struct tunnel_st *tl)
@@ -160,16 +161,19 @@ static int send_cmd_echo(struct tunnel_st *tl, uint8_t echo)
 	return tunnel_pkt_send(tl, (uint8_t *)&seed, sizeof(seed), echo);
 }
 
-void tunnel_on_cmd(struct tunnel_st *tl, struct vpn_head_st *head)
+void tunnel_on_cmd(struct tunnel_st *tl, struct vpn_head_st *hdr, uint64_t arg)
 {
-	switch (head->type) {
+	switch (hdr->type) {
+	case PKT_CONN_SET:
+		(void)tunnel_create((int)arg, hdr);
+		break;
 	case PKT_ECHO_REQ:
 		send_cmd_echo(tl, PKT_ECHO_REP);
 		break;
 	case PKT_ECHO_REP:
 		break;
 	default:
-		DEBUG("recv unknow cmd: %u", head->type);
+		DEBUG("recv unknow cmd: %u", hdr->type);
 		break;
 	};
 }
@@ -242,13 +246,16 @@ void tunnel_on_idle(void *arg)
 		ev_timer(TUNNEL_TIMER_INTERVAL, tunnel_on_idle, tl);
 }
 
-static tunnel_st * tunnel_create(int fd, uint8_t *buf, int size)
+static tunnel_st * tunnel_create(int fd, struct vpn_head_st *hdr)
 {
-	struct vpn_head_st *hdr = (struct vpn_head_st *)buf;
 	struct cmd_tunnel_st *cmd = (struct cmd_tunnel_st *)hdr->data;
-	if (!buf || size < (int)(sizeof(*hdr) + hdr->data_len) ||
-		hdr->data_len != (int)(cmd->klen + sizeof(struct cmd_tunnel_st))) {
-		DEBUG("invalid tunnel cmd size: %d, data_len: %u, expect: %lu", size, hdr->data_len, cmd->klen + sizeof(struct cmd_tunnel_st));
+	if (hdr->data_len != (int)(cmd->klen + sizeof(struct cmd_tunnel_st))) {
+		DEBUG("invalid tunnel cmd size: data_len: %u, expect: %lu", hdr->data_len, cmd->klen + sizeof(struct cmd_tunnel_st));
+		return NULL;
+	}
+
+	if (fd < 0) {
+		WARN("create tunnel but not fd: %d", fd);
 		return NULL;
 	}
 
@@ -400,7 +407,7 @@ static void enc_input(int fd, short event, void *arg)
 		return;
 
 	if (head->type != PKT_DATA)
-		tunnel_on_cmd(tl, head);
+		tunnel_on_cmd(tl, head, -1);
 	else
 		raw_output(tl, head->data, head->old_len);
 }
@@ -452,7 +459,7 @@ static void reset_manage_handle_block()
 }
 
 /* 接收vpn_managle发送的socket描述符, 建立隧道 */
-void conn_listen()
+void vpn_managle_listen()
 {
 	uint8_t buf[BUF_SIZE];
 	int new_fd;
@@ -461,7 +468,7 @@ void conn_listen()
 		int size = sizeof(buf) / sizeof(buf[0]);
 		int vpn_fd = ipc_fd(s_tunnel_manage.recv);
 
-		int ret = conn_recv(vpn_fd, NULL, buf, size, &new_fd);
+		int ret = msg_recv(vpn_fd, NULL, buf, size, &new_fd);
 		if (ret < 0) {
 			continue;
 		} else if (!ret) {
@@ -469,7 +476,7 @@ void conn_listen()
 			continue;
 		}
 
-		(void)tunnel_create(new_fd, buf, size);
+		tunnel_on_cmd(NULL, (struct vpn_head_st *)buf, new_fd);
 	}
 }
 

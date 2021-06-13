@@ -5,7 +5,7 @@
 
 uint32_t tunnel_ev_rss(int fd, void *arg);
 
-void conn_listen();
+void vpn_managle_listen();
 
 int tunnel_init(int server, int nraw);
 
