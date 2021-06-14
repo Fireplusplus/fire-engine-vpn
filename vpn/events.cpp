@@ -5,9 +5,9 @@
 #include <fcntl.h>
 #include <assert.h>
 #include <arpa/inet.h>
-
 #include <iostream>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "log.h"
 #include "mem.h"
@@ -23,7 +23,7 @@
 using namespace std;
 
 #define SC_NODE_TIMEOUT		10
-#define SC_CLEAN_INTERVAL	10
+#define SC_TIMER_INTERVAL	5
 
 struct event_action_st {
 	ipc_st * (*create)();
@@ -32,8 +32,24 @@ struct event_action_st {
 	const char *desc;
 };
 
-static unordered_map<int, ser_cli_node*> s_sc_info_list;		/* 事件缓存表 */
+ipc_st *s_tunnel_ipc;													/* 与tunnel manage通信的句柄 */
+static unordered_map<int, ser_cli_node*> s_sc_info_list;				/* 事件缓存表 */
 static int s_server;
+
+static const char * s_sc_status2str[] = {
+											"SC_INIT",
+											"SC_KEY_C_SEND",
+											"SC_KEY_R_SEND",
+											"SC_AUTH_C_SEND",
+											"SC_AUTH_R_SEND",
+											"SC_SUCCESS",
+											"SC_LISTEN"
+										};
+
+const char * sc_status2str(uint8_t status)
+{
+	return s_sc_status2str[status];
+}
 
 static void sc_info_add(ipc_st *ipc, ser_cli_node *sc)
 {
@@ -94,7 +110,7 @@ static ipc_st * sc_info_ipc(int fd)
 }
 #endif
 
-/* 读事件回调 */
+/* 协商读事件回调 */
 static void on_read(int fd, short what, void *arg)
 {
 	ser_cli_node *sc = (ser_cli_node *)arg;
@@ -117,6 +133,54 @@ static void on_read(int fd, short what, void *arg)
 	sc->last_active_time = cur_time();
 	if (on_cmd((ser_cli_node *)arg, (uint8_t *)&buf) < 0) {
 		WARN("on cmd failed, negotiation failed");
+	}
+}
+
+/* tunnel manage读事件回调 */
+static void on_read_manage(int fd, short what, void *arg)
+{
+	char buf[65535];
+	int ret;
+
+	ret = pkt_recv(fd, NULL, (uint8_t*)buf, sizeof(buf));
+	if (ret < 0) {
+		return;
+	}
+
+	if (!ret) {
+		WARN("tunnel manage closed, exit !");
+		exit(-1);
+	}
+
+	struct vpn_head_st *hdr = (struct vpn_head_st *)buf;
+	if (hdr->type != PKT_CONN_INFO) {
+		return;
+	}
+
+	struct cmd_conn_info_st *info = (struct cmd_conn_info_st *)hdr->data;
+	if (info->alive_cnt * sizeof(uint32_t) > hdr->old_len) {
+		DEBUG("invalid alive_cnt: %d, size: %d", info->alive_cnt, hdr->old_len);
+		return;
+	}
+
+	unordered_set<uint32_t> seeds_list;
+	uint32_t *seeds = (uint32_t *)info->data;
+	for (int i = 0; i < info->alive_cnt; i++) {
+		seeds_list.insert(seeds[i]);
+	}
+
+	for (auto it = s_sc_info_list.begin(); it != s_sc_info_list.end(); ++it) {
+		if (it->second->status != SC_SUCCESS)
+			continue;
+
+		auto sit = seeds_list.find(it->second->seed);
+
+		if (sit == seeds_list.end()) {
+			it->second->status = SC_INIT;
+			WARN("reset sc status to SC_INIT: seed: %u", it->second->seed);
+		} else {
+			INFO("sc is alive: seed: %u", it->second->seed);
+		}
 	}
 }
 
@@ -160,8 +224,8 @@ void event_register()
 	}
 
 	sc = sc_info_create(ipc, s_server);
-	if (s_server)	/* server监听sc无需删除，置为SUCCESS */
-		sc->status = SC_SUCCESS;
+	if (s_server)
+		sc->status = SC_LISTEN;
 
 	if (ev_register(ipc_fd(ipc), pevs->on_do, sc) < 0) {
 		ERROR("%s register failed", pevs->desc);
@@ -180,22 +244,75 @@ failed:
 	exit(-1);
 }
 
-void sc_clean_timer(void *arg)
+static int reset_tunnel_handle_block(int server)
 {
-	uint64_t now = cur_time();
-	
-	for (auto it = s_sc_info_list.begin(); it != s_sc_info_list.end();) {
-		if (it->second->status != SC_SUCCESS &&
-				now > it->second->last_active_time + SC_NODE_TIMEOUT) {
-			DEBUG("destroy timeout sc: %s", get_user_name(it->second->user));
-			sc_info_destroy(it->second);
-			it = s_sc_info_list.erase(it);
-		} else {
-			++it;
-		}
+	const char *addr = get_tunnel_addr(server);
+
+	if (s_tunnel_ipc)
+		return 0;
+
+	do {
+		s_tunnel_ipc = ipc_client_create(AF_UNIX, NULL, 0, addr, 0);
+		sleep(1);
+	} while (!s_tunnel_ipc);
+
+	if (ev_register(ipc_fd(s_tunnel_ipc), on_read_manage, NULL) < 0) {
+		ERROR("s_tunnel_ipc register failed");
+		return -1;
 	}
 
-	ev_timer(SC_CLEAN_INTERVAL, sc_clean_timer, NULL);
+	return 0;
+}
+
+
+static void sc_on_timer(void *arg)
+{
+	uint64_t now = cur_time();
+	struct ser_cli_node *sc;
+	uint8_t status, reconn = 0, erase = 0;
+	
+	for (auto it = s_sc_info_list.begin(); it != s_sc_info_list.end();) {
+		sc = it->second;
+		status = sc->status;
+
+		switch (status) {
+		case SC_LISTEN:
+			break;
+		case SC_SUCCESS:
+			break;
+		case SC_INIT:
+			if (now > it->second->last_active_time + SC_NODE_TIMEOUT) {
+				DEBUG("destroy timeout sc: %s, status: %s", 
+					get_user_name(it->second->user), sc_status2str(it->second->status));
+
+				sc_info_destroy(it->second);
+				it = s_sc_info_list.erase(it);
+
+				if (!s_server)
+					reconn = 1;
+
+				erase = 1;
+			}
+			break;
+		default:
+			if (now > it->second->last_active_time + SC_NODE_TIMEOUT) {
+				DEBUG("destroy timeout sc: %s, status: %s", 
+					get_user_name(it->second->user), sc_status2str(it->second->status));
+				sc_info_destroy(it->second);
+				it = s_sc_info_list.erase(it);
+				erase = 1;
+			}
+			break;
+		};
+
+		if (!erase)
+			++it;
+	}
+
+	if (reconn)
+		event_register();
+
+	ev_timer(SC_TIMER_INTERVAL, sc_on_timer, NULL);
 }
 
 /* 初始化服务环境 */
@@ -209,7 +326,10 @@ int event_init(int server)
 	if (ev_init(0, NULL) < 0)
 		return -1;
 	
-	if (ev_timer(SC_CLEAN_INTERVAL, sc_clean_timer, NULL) < 0)
+	if (reset_tunnel_handle_block(s_server) < 0)
+		return -1;
+	
+	if (ev_timer(SC_TIMER_INTERVAL << 2, sc_on_timer, NULL) < 0)
 		return -1;
 
 	return 0;

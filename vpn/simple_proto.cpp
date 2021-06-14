@@ -48,7 +48,6 @@ static int on_cmd_key(ser_cli_node *sc, uint8_t *data, uint16_t dlen);
 static int on_cmd_auth_c(ser_cli_node *sc, uint8_t *data, uint16_t dlen);
 static int on_cmd_auth_r(ser_cli_node *sc, uint8_t *data, uint16_t dlen);
 static int conn_notify(ser_cli_node *sc, net_st *nets, int netcnt);
-static void reset_tunnel_handle_block(int server);
 
 
 #define CMD_ENC_BEGIN PKT_AUTH_C
@@ -70,9 +69,6 @@ struct cmd_desc_st {
 	int cmd;
 	const char *desc;
 };
-
-static ipc_st *s_tunnel_ipc;
-
 
 int on_cmd(ser_cli_node *sc, uint8_t *data)
 {
@@ -102,12 +98,6 @@ static inline int cmd_send_remote(ser_cli_node *sc, uint16_t cmd, uint8_t *buf, 
 	
 	return ret;
 }
-
-/*
-static int cmd_send_local(const ser_cli_node *sc, uint16_t cmd, uint8_t *buf, uint32_t len)
-{
-	return cmd_send(sc, cmd, buf, len, 0, 0);
-}*/
 
 static int cmd_key_send(ser_cli_node *sc)
 {
@@ -287,19 +277,6 @@ static int on_cmd_auth_r(ser_cli_node *sc, uint8_t *data, uint16_t dlen)
 	return 0;
 }
 
-static void reset_tunnel_handle_block(int server)
-{
-	const char *addr = get_tunnel_addr(server);
-
-	ipc_destroy(s_tunnel_ipc);
-	s_tunnel_ipc = NULL;
-
-	do {
-		s_tunnel_ipc = ipc_client_create(AF_UNIX, NULL, 0, addr, 0);
-		sleep(1);
-	} while (!s_tunnel_ipc);
-}
-
 /* 通知新连接给tunnel_manage */
 static int conn_notify(ser_cli_node *sc, struct net_st *nets, int netcnt)
 {
@@ -332,20 +309,13 @@ static int conn_notify(ser_cli_node *sc, struct net_st *nets, int netcnt)
 
 	if (msg_send(ipc_fd(s_tunnel_ipc), PKT_CONN_SET, sc->crypt, 
 		buf, sizeof(struct cmd_tunnel_st) + tn->klen, ipc_fd(sc->ipc)) < 0) {
-		DEBUG("tunnel handle broke");
-		reset_tunnel_handle_block(sc->server);
-		return -1;
+		WARN("notify tunnel manage failed, exit !");
+		exit(-1);
 	}
 
 	INFO("notify tunnel manage to create tunnel");
 	sc->status = SC_SUCCESS;
 	ev_unregister(ipc_fd(sc->ipc));
-	return 0;
-}
-
-int proto_init(int server)
-{
-	reset_tunnel_handle_block(server);
 	return 0;
 }
 

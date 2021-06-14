@@ -28,6 +28,11 @@ struct cmd_tunnel_st {
 	uint8_t pubkey[0];
 };
 
+struct cmd_conn_info_st {
+	uint16_t alive_cnt;
+	uint8_t data[0];
+} VPN_PACKED;
+
 struct vpn_head_st {
 	uint16_t type;				/* 数据包类型 */
 	uint16_t _type;				/* ~type */
@@ -44,7 +49,7 @@ enum pkt_type {
 	PKT_AUTH_C,
 	PKT_AUTH_R,
 	PKT_CONN_SET,
-	PKT_CONN_GET,
+	PKT_CONN_INFO,
 	PKT_DATA,
 	PKT_ECHO_REQ,
 	PKT_ECHO_REP,

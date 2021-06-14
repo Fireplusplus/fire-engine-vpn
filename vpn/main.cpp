@@ -15,7 +15,6 @@
 #include "local_config.h"
 #include "config.h"
 
-
 void usage()
 {
 	const char *help[] = {
@@ -90,10 +89,6 @@ int main(int argc, char *argv[])
 	
 	if (server && config_init() < 0)
 		return -1;
-
-	if (proto_init(server) < 0) {
-		return -1;
-	}
 
 	if (event_init(server) < 0) {
 		return -1;

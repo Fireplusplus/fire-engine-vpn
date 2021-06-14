@@ -56,11 +56,10 @@ int send_fd(int fd, int fd_send, uint8_t *data, int len)
 				msg.msg_iov->iov_base, (int)msg.msg_iov->iov_len);
 	}
 
-	if (sendmsg(fd, &msg, 0) < 0) {
+	if (sendmsg(fd, &msg, 0) <= 0) {
 		DEBUG("sendmsg failed: %s", strerror(errno));
 		return -1;
 	}
-
 	
 	return 0;
 }

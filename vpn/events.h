@@ -10,7 +10,8 @@ enum negotiate_status {
 	SC_KEY_R_SEND,
 	SC_AUTH_C_SEND,
 	SC_AUTH_R_SEND,
-	SC_SUCCESS
+	SC_SUCCESS,
+	SC_LISTEN,
 };
 
 struct ser_cli_node {
@@ -26,11 +27,14 @@ struct ser_cli_node {
 	const struct user_st 	*user;			/* 用户信息 */
 };
 
+extern ipc_st *s_tunnel_ipc;
 
 /* 初始化服务环境 */
 int event_init(int server);
 
 /* 创建套接字并注册事件 */
 void event_register();
+
+const char * sc_status2str(uint8_t status);
 
 #endif

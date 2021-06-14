@@ -98,7 +98,7 @@ int ev_register(int fd, ev_callback fn, void *arg)
 	if (s_ev_list.find(fd) != s_ev_list.end())
 		return 0;
 	
-	struct event_base* eb = CUR_EV_BASE(fd, arg);
+	struct event_base *eb = CUR_EV_BASE(fd, arg);
 
 	struct event *ev = event_new(eb, fd, EV_READ | EV_PERSIST, fn, arg);
 	if (!ev) {

@@ -10,6 +10,7 @@
 
 #include <iostream>
 #include <map>
+#include <unordered_set>
 
 #include "tunnel.h"
 #include "log.h"
@@ -506,13 +507,41 @@ int tunnel_clean_one(uint64_t now)
 	return end;
 }
 
-void tunnel_clean_timer(void *arg)
+static void notify_vpn_alive()
+{
+	uint8_t buf[BUF_SIZE] = {0};
+	struct cmd_conn_info_st *info = (struct cmd_conn_info_st *)buf;
+	uint32_t *seeds = (uint32_t *)info->data;
+	unordered_set<uint32_t> seeds_list;
+
+	for (auto it = s_tunnel_list.begin(); it != s_tunnel_list.end(); ++it) {
+		uint32_t seed = it->second->seed;
+
+		if (it->second->status != TUNNEL_DEAD && seeds_list.find(seed) == seeds_list.end()) {
+			seeds[info->alive_cnt++] = it->second->seed;
+			DEBUG("seed: %u, alive_cnt: %d", it->second->seed, info->alive_cnt);
+
+			seeds_list.insert(seed);
+		}
+	}
+
+	DEBUG("notify_vpn_alive alive cnt: %d", info->alive_cnt);
+
+	if (msg_send(ipc_fd(s_tunnel_manage.recv), PKT_CONN_INFO, NULL, 
+			buf, sizeof(struct cmd_conn_info_st) + info->alive_cnt * sizeof(uint32_t), -1) < 0) {
+		WARN("notify vpn manage failed !");
+	}
+}
+
+void tunnel_on_timer(void *arg)
 {
 	uint64_t now = cur_time();
 
 	while (tunnel_clean_one(now) == 0);
 
-	ev_timer(TUNNEL_TIMEOUT, tunnel_clean_timer, NULL);
+	notify_vpn_alive();
+
+	ev_timer(5, tunnel_on_timer, NULL);
 }
 
 int tunnel_init(int server, int nraw)
@@ -523,6 +552,8 @@ int tunnel_init(int server, int nraw)
 	s_tunnel_manage.listen = ipc_listener_create(AF_UNIX, addr, 0);
 	if (!s_tunnel_manage.listen)
 		return -1;
+	
+	reset_manage_handle_block();
 
 	s_tunnel_manage.server = server;
 
@@ -565,7 +596,7 @@ int tunnel_init(int server, int nraw)
 		goto failed;
 	}
 
-	if (ev_timer(TUNNEL_TIMEOUT, tunnel_clean_timer, NULL) < 0)
+	if (ev_timer(TUNNEL_TIMEOUT, tunnel_on_timer, NULL) < 0)
 		goto failed;
 
 	return 0;
